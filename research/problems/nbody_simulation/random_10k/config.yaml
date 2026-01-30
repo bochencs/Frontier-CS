@@ -1,5 +1,3 @@
-dependencies:
-  uv_project: resources
 tag: hpc
 runtime:
   timeout_seconds: 600
