@@ -263,6 +263,12 @@ push_results() {
     fi
 
     if ! git diff --staged --quiet; then
+        echo ""
+        echo "Changes to be pushed:"
+        echo "----------------------------------------"
+        git diff --staged --stat
+        echo "----------------------------------------"
+        echo ""
         git commit -m "chore: update $track evaluation results $(date +%Y-%m-%d)"
         git push
         echo "Pushed results to remote"
@@ -306,14 +312,22 @@ cleanup_skypilot() {
     fi
 }
 
-# Trap for Ctrl+C and other signals (local runs)
+# Trap for any exit (Ctrl+C, errors, normal exit)
+CLEANUP_DONE=false
 cleanup_on_exit() {
-    echo ""
-    echo "Interrupted! Running cleanup..."
+    if $CLEANUP_DONE; then
+        return
+    fi
+    CLEANUP_DONE=true
+
+    local exit_code=$?
+    if [[ $exit_code -ne 0 ]]; then
+        echo ""
+        echo "Exiting with code $exit_code, running cleanup..."
+    fi
     cleanup_skypilot
-    exit 1
 }
-trap cleanup_on_exit INT TERM
+trap cleanup_on_exit EXIT
 
 # Main
 
@@ -497,9 +511,6 @@ if [[ -d "$RESULTS_REPO/.git" ]]; then
         echo "No changes to push"
     fi
 fi
-
-# Cleanup SkyPilot clusters
-cleanup_skypilot
 
 echo ""
 echo "Evaluation complete!"

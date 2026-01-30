@@ -202,10 +202,13 @@ class BatchEvaluator:
                 else:
                     probs_dir = self.base_dir / "research" / "problems"
                 problem_path = probs_dir / pair.problem
-                problem_hash_cache[pair.problem] = hash_directory(problem_path) if problem_path.exists() else None
+                prob_hash = hash_directory(problem_path) if problem_path.exists() else None
+                problem_hash_cache[pair.problem] = prob_hash
+                logger.debug(f"Problem hash: {pair.problem} -> {prob_hash}")
 
             hashes[pair.id] = (sol_hash, problem_hash_cache[pair.problem])
 
+        logger.debug(f"Computed hashes for {len(hashes)} pairs, {len(problem_hash_cache)} unique problems")
         return hashes
 
     def sync_from_bucket(self) -> int:
@@ -288,7 +291,18 @@ class BatchEvaluator:
         if resume:
             pending, invalidated = self.state.get_pending_pairs(pairs, self._pair_hashes)
             if invalidated:
-                logger.warning(f"⚠️  {len(invalidated)} pair(s) invalidated due to changes")
+                logger.warning(f"⚠️  {len(invalidated)} pair(s) invalidated due to changes:")
+                for pair in invalidated:
+                    result = self.state.results.get(pair.id)
+                    sol_hash, prob_hash = self._pair_hashes.get(pair.id, (None, None))
+                    old_sol = result.solution_hash if result else None
+                    old_prob = result.problem_hash if result else None
+                    changes = []
+                    if old_sol != sol_hash:
+                        changes.append(f"solution: {old_sol} -> {sol_hash}")
+                    if old_prob != prob_hash:
+                        changes.append(f"problem: {old_prob} -> {prob_hash}")
+                    logger.warning(f"  - {pair.id}: {', '.join(changes)}")
             completed = len(pairs) - len(pending)
             if completed > 0:
                 logger.info(f"Resuming: {completed} pairs already complete")

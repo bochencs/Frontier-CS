@@ -28,19 +28,23 @@ def hash_file(path: Path) -> str:
     return h.hexdigest()[:16]  # Use first 16 chars for brevity
 
 
-def hash_directory(path: Path, extensions: Optional[Set[str]] = None) -> str:
+# Exclude compiled artifacts and temporary files from hash computation
+EXCLUDE_EXTENSIONS = {".exe", ".o", ".obj", ".so", ".dll", ".pyc", ".pyo", ".class", ".a", ".lib"}
+
+
+def hash_directory(path: Path, exclude_extensions: Optional[Set[str]] = None) -> str:
     """
     Compute hash of all relevant files in a directory.
 
     Args:
         path: Directory path
-        extensions: File extensions to include (default: common code/config files)
+        exclude_extensions: File extensions to exclude (default: compiled artifacts)
 
     Returns:
         Combined hash of all file contents and paths
     """
-    if extensions is None:
-        extensions = {".py", ".sh", ".yaml", ".yml", ".txt", ".json", ".md", ""}
+    if exclude_extensions is None:
+        exclude_extensions = EXCLUDE_EXTENSIONS
 
     h = hashlib.sha256()
     files = []
@@ -51,8 +55,8 @@ def hash_directory(path: Path, extensions: Optional[Set[str]] = None) -> str:
         # Skip hidden files and __pycache__
         if any(part.startswith(".") or part == "__pycache__" for part in p.parts):
             continue
-        # Filter by extension
-        if extensions and p.suffix not in extensions:
+        # Exclude compiled artifacts
+        if p.suffix in exclude_extensions:
             continue
         files.append(p)
 
