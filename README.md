@@ -206,10 +206,3 @@ If you use Frontier-CS in your research, please cite:
       url={https://arxiv.org/abs/2512.15699},
 }
 ```
-
-
-| Rank | Model | Score |
-|------|-------|-------|
-| 1 | GPT-5 | 95.5 |
-| 2 | Claude-3 | 92.3 |
-| 3 | Gemini-1.5 | 88.7 |
