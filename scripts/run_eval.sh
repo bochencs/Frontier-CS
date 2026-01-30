@@ -20,6 +20,7 @@ SKYPILOT=false
 RESULTS_REPO=""
 CHECK_OVERLAP=false
 DRY_RUN=false
+FORCE=false  # Force re-evaluation of all pairs (--no-resume)
 AUTO_CLONE=true  # Auto-clone repos if not provided
 PUSH_MODE="interactive"  # interactive (default), yes, no
 
@@ -66,6 +67,7 @@ Options:
     -j N                  Parallelism: clusters for research, workers for algorithmic (default: 10)
     --push                Auto-push results to remote (for CI)
     --no-push             Skip pushing results (for local testing)
+    --force               Force re-evaluation of all pairs (ignore cache)
     --check-overlap       Only check internal ⊇ public
     --dry-run             Print commands without executing
     -h, --help            Show this help
@@ -119,6 +121,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --no-push)
             PUSH_MODE="no"
+            shift
+            ;;
+        --force)
+            FORCE=true
             shift
             ;;
         -h|--help)
@@ -477,6 +483,10 @@ if $SKYPILOT; then
     CMD="$CMD --skypilot --workers $PARALLELISM --clusters $PARALLELISM"
 else
     CMD="$CMD --workers $PARALLELISM"
+fi
+
+if $FORCE; then
+    CMD="$CMD --no-resume"
 fi
 
 echo ""
