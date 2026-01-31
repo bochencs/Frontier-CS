@@ -35,6 +35,7 @@ algorithmic/problems/{problem_id}/
 ├── config.yaml       # Problem configuration (time limit, memory limit, checker)
 ├── statement.txt     # Problem description and requirements
 ├── chk.cc or interactor.cc (for interactive problems)          # Evaluator
+├── reference.cpp     # Reference solution (required for CI validation)
 └── testdata/        # Test cases
     ├── 1.in         # Sample input
     ├── 1.ans        # Hidden evaluation data used by the evaluator, e.g., reference score.
@@ -42,6 +43,8 @@ algorithmic/problems/{problem_id}/
     ├── 2.ans
     └── ...
 ```
+
+> **Note**: The `reference.cpp` is required for CI validation. When you submit a PR, the CI will automatically run your reference solution and verify it achieves score > 0.
 
 ### Required Files
 
@@ -127,8 +130,11 @@ research/{problem_name}/
 ├── evaluate.sh          # Evaluation entry point
 ├── evaluator.py         # Scoring logic
 ├── readme               # Problem description
+├── reference.py         # Reference solution (required for CI validation)
 └── resources/           # Problem-specific code/data
 ```
+
+> **Note**: The `reference.py` is required for CI validation. When you submit a PR, the CI will automatically run your reference solution and verify it achieves score > 0.
 
 ### Solution Interface
 
@@ -256,6 +262,35 @@ research/gemm_optimization/squares
 research/gemm_optimization/rectangles
 research/poc_generation/heap_buffer_overflow/arvo_21000
 research/poc_generation/heap_buffer_overflow/arvo_47101
+```
+
+## CI Validation
+
+When you submit a PR that adds or modifies problems, CI will automatically validate your changes:
+
+1. **Detection**: CI detects which problems were modified via `git diff`
+2. **Validation**: For each modified problem, CI runs the reference solution
+3. **Pass Criteria**: Reference solution must achieve score > 0
+
+### Reference Solution Requirements
+
+| Track | File | Location |
+|-------|------|----------|
+| Algorithmic | `reference.cpp` | `algorithmic/problems/{id}/reference.cpp` |
+| Research | `reference.py` | `research/problems/{name}/reference.py` |
+
+If the reference solution is missing or scores 0, the PR will be blocked from merging.
+
+### Local Testing
+
+Before submitting a PR, test your reference solution locally:
+
+```bash
+# Algorithmic
+frontier eval --algorithmic {id} algorithmic/problems/{id}/reference.cpp
+
+# Research
+frontier eval {name} research/problems/{name}/reference.py
 ```
 
 ## Contact

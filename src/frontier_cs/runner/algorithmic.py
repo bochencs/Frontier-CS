@@ -74,7 +74,6 @@ class AlgorithmicRunner(Runner):
             logger.error(f"docker-compose.yml not found: {compose_file}")
             return False
 
-        # Build docker compose command
         cmd = ["docker", "compose", "up", "-d"]
 
         # Build environment with optional problems_dir override
@@ -92,7 +91,7 @@ class AlgorithmicRunner(Runner):
                 cwd=compose_dir,
                 capture_output=True,
                 text=True,
-                timeout=120,
+                timeout=300,  # 5 minutes for building images
                 env=env,
             )
             if result.returncode != 0:
@@ -101,7 +100,7 @@ class AlgorithmicRunner(Runner):
             logger.info("docker compose started successfully")
             return True
         except subprocess.TimeoutExpired:
-            logger.error("docker compose timed out after 120s")
+            logger.error("docker compose timed out after 300s")
             return False
         except FileNotFoundError:
             logger.error("docker command not found - is Docker installed?")
