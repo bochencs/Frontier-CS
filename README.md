@@ -116,11 +116,11 @@ frontier eval algorithmic 0 <your_solution.cpp>
 # List all problems
 frontier list research
 
-# Evaluate a solution locally (uses Docker by default)
+# Evaluate (uses SkyPilot by default, requires `sky check`)
 frontier eval research flash_attn <your_solution.py>
 
-# Evaluate on cloud with SkyPilot
-frontier eval research flash_attn <your_solution.py> --skypilot
+# Use Docker instead (no cloud setup needed)
+frontier eval research flash_attn <your_solution.py> --backend docker
 ```
 
 See [research/README.md](research/README.md) for full documentation.
@@ -128,11 +128,11 @@ See [research/README.md](research/README.md) for full documentation.
 ### Algorithmic Problems
 
 ```bash
-# Evaluate a solution locally (uses Docker by default)
+# Evaluate (uses Docker by default)
 frontier eval algorithmic 1 <your_solution.cpp>
 
-# Evaluate on cloud with SkyPilot
-frontier eval algorithmic 1 <your_solution.cpp> --skypilot
+# Use SkyPilot instead
+frontier eval algorithmic 1 <your_solution.cpp> --backend skypilot
 ```
 
 See [algorithmic/README.md](algorithmic/README.md) for full documentation.

@@ -6,29 +6,29 @@ Real-world systems challenges requiring domain expertise in GPU computing, distr
 
 ## Basic Usage
 
-```bash
-# List all problems
-frontier list research
-
-# Evaluate a solution locally (uses Docker by default)
-frontier eval research flash_attn <your_solution.py>
-
-# Evaluate on cloud with SkyPilot
-frontier eval research flash_attn <your_solution.py> --skypilot
-
-# Evaluate multiple problems
-frontier eval research --problems flash_attn,cross_entropy <your_solution.py>
-```
-
-## SkyPilot Setup
-
-Some problems require GPUs or specific hardware. Use [SkyPilot](https://skypilot.readthedocs.io/) to run evaluations on cloud VMs.
+Research track defaults to SkyPilot (cloud). Requires `sky check` first:
 
 ```bash
+# Setup SkyPilot (one-time)
+pip install skypilot-nightly
 sky check
 ```
 
 See [SkyPilot docs](https://skypilot.readthedocs.io/en/latest/getting-started/installation.html) for cloud credential setup.
+
+```bash
+# List all problems
+frontier list research
+
+# Evaluate (uses SkyPilot by default)
+frontier eval research flash_attn <your_solution.py>
+
+# Use Docker instead (no cloud setup needed)
+frontier eval research flash_attn <your_solution.py> --backend docker
+
+# Evaluate multiple problems
+frontier eval research --problems flash_attn,cross_entropy <your_solution.py>
+```
 
 ## Batch Evaluation
 

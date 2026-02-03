@@ -88,7 +88,7 @@ For environments where Docker privileged mode is unavailable (e.g., gVisor, Clou
 
 ```bash
 # Auto-launch cloud judge
-frontier eval algorithmic 1 solution.cpp --skypilot
+frontier eval algorithmic 1 solution.cpp --backend skypilot
 
 # Or manually launch
 sky launch -c algo-judge algorithmic/sky-judge.yaml --idle-minutes-to-autostop 10

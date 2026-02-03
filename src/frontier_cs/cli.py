@@ -123,9 +123,11 @@ Examples:
     # Backend options
     backend_group = eval_parser.add_argument_group("Backend Options")
     backend_group.add_argument(
-        "--skypilot",
-        action="store_true",
-        help="Use SkyPilot for cloud evaluation",
+        "--backend",
+        type=str,
+        choices=["docker", "skypilot"],
+        help="Evaluation backend: docker (local) or skypilot (cloud). "
+             "Default: skypilot for research, docker for algorithmic",
     )
     backend_group.add_argument(
         "--cloud",
@@ -797,8 +799,12 @@ def run_eval(args: argparse.Namespace) -> int:
     """Run eval command."""
     track = args.track
 
-    # Create evaluator
-    backend = "skypilot" if args.skypilot else "docker"
+    # Determine backend: explicit --backend or track default
+    if args.backend:
+        backend = args.backend
+    else:
+        # Default: skypilot for research, docker for algorithmic
+        backend = "skypilot" if track == "research" else "docker"
     idle_timeout = None if args.keep_cluster else getattr(args, 'idle_timeout', 10)
     timeout = getattr(args, 'timeout', None)
     evaluator = FrontierCSEvaluator(
