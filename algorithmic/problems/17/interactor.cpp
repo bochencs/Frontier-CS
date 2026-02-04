@@ -114,7 +114,7 @@ int main(int argc, char* argv[]) {
     }
 
     double score_ratio = minScoreBoundedPct / 100.0;
-    double unbounded_ratio = minRatioUnbounded;
+    double unbounded_ratio = minRatioUnbounded / 100.0;
 
     quitp(score_ratio,
           "all %d tests passed; Ratio: %.4f; RatioUnbounded: %.4f; total queries = %d",
