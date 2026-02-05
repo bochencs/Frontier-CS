@@ -60,7 +60,24 @@ jobs:
       - name: Install dependencies
         run: |
           uv sync
-          uv pip install skypilot[gcp]
+          uv pip install "skypilot[gcp,aws]"
+
+      - name: Set up AWS credentials
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        run: |
+          mkdir -p ~/.aws
+          cat > ~/.aws/credentials << EOF
+          [default]
+          aws_access_key_id = $AWS_ACCESS_KEY_ID
+          aws_secret_access_key = $AWS_SECRET_ACCESS_KEY
+          EOF
+          cat > ~/.aws/config << EOF
+          [default]
+          region = us-east-1
+          EOF
+          echo "AWS credentials configured"
 
       - name: Set up GCP credentials
         run: |
@@ -77,7 +94,7 @@ jobs:
       - name: Configure SkyPilot
         run: |
           mkdir -p ~/.sky
-          uv run sky check gcp || true
+          uv run sky check aws gcp || true
         env:
           GOOGLE_APPLICATION_CREDENTIALS: /tmp/gcp-key.json
 
