@@ -7,8 +7,8 @@ Usage:
     frontier eval research flash_attn solution.py
     frontier eval algorithmic 1 solution.cpp
 
-    # With SkyPilot
-    frontier eval research flash_attn solution.py --skypilot
+    # Override backend
+    frontier eval research flash_attn solution.py --backend docker
 
     # All problems for a solution
     frontier eval research --all-problems solution.py
@@ -25,12 +25,13 @@ Usage:
 """
 
 import argparse
+import contextlib
 import logging
 import sys
 from pathlib import Path
 from typing import List, Optional
 
-from .evaluator import FrontierCSEvaluator
+from .single_evaluator import SingleEvaluator
 from .runner import EvaluationResult
 
 logger = logging.getLogger(__name__)
@@ -74,8 +75,8 @@ Examples:
   # Evaluate an algorithmic problem
   frontier eval algorithmic 1 solution.cpp
 
-  # Evaluate with SkyPilot (cloud)
-  frontier eval research flash_attn solution.py --skypilot
+  # Override backend
+  frontier eval research flash_attn solution.py --backend docker
 
   # Evaluate multiple problems
   frontier eval research --problems flash_attn,cross_entropy solution.py
@@ -443,7 +444,7 @@ def print_results_json(results: List[EvaluationResult]) -> None:
 
 def get_problem_ids(
     args: argparse.Namespace,
-    evaluator: FrontierCSEvaluator,
+    evaluator: SingleEvaluator,
     track: str,
 ) -> List[str]:
     """Get list of problem IDs to evaluate."""
@@ -749,7 +750,7 @@ def run_batch(args: argparse.Namespace) -> int:
 
 def run_list(args: argparse.Namespace) -> int:
     """Run list command."""
-    evaluator = FrontierCSEvaluator(backend="docker")
+    evaluator = SingleEvaluator(backend="docker")
 
     if args.track == "algorithmic":
         # Only list algorithmic problems in compact format
@@ -785,7 +786,7 @@ def run_list(args: argparse.Namespace) -> int:
 
 def run_show(args: argparse.Namespace) -> int:
     """Run show command."""
-    evaluator = FrontierCSEvaluator(backend="docker")
+    evaluator = SingleEvaluator(backend="docker")
     statement = evaluator.get_problem_statement(args.track, args.problem_id)
     if statement:
         print(statement)
@@ -807,7 +808,7 @@ def run_eval(args: argparse.Namespace) -> int:
         backend = "skypilot" if track == "research" else "docker"
     idle_timeout = None if args.keep_cluster else getattr(args, 'idle_timeout', 10)
     timeout = getattr(args, 'timeout', None)
-    evaluator = FrontierCSEvaluator(
+    evaluator = SingleEvaluator(
         backend=backend,
         judge_url=args.judge_url,
         cloud=args.cloud,
@@ -839,18 +840,25 @@ def run_eval(args: argparse.Namespace) -> int:
 
     # Run evaluations
     results = []
-    for pid in problem_ids:
-        if not args.quiet:
-            print(f"Evaluating {pid}...", end=" ", flush=True)
+    eval_stdout = contextlib.nullcontext()
+    if args.json:
+        # Keep JSON clean: suppress human-readable prints and route runner stdout to stderr
+        args.quiet = True
+        eval_stdout = contextlib.redirect_stdout(sys.stderr)
 
-        result = evaluator.evaluate(track, pid, code)
-        results.append(result)
+    with eval_stdout:
+        for pid in problem_ids:
+            if not args.quiet:
+                print(f"Evaluating {pid}...", end=" ", flush=True)
 
-        if not args.quiet:
-            if result.success:
-                print(f"Score: {result.score}")
-            else:
-                print(f"ERROR: {result.message}")
+            result = evaluator.evaluate(track, pid, code)
+            results.append(result)
+
+            if not args.quiet:
+                if result.success:
+                    print(f"Score: {result.score}")
+                else:
+                    print(f"ERROR: {result.message}")
 
     # Output results
     if args.json:

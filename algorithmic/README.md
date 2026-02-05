@@ -1,8 +1,8 @@
-## FrontierCS - Algorithmic Problems
+# Algorithmic Problems
 
-> For complete model evaluation workflow (prepare solutions, run batch evaluation, submit to leaderboard), see [SUBMIT.md](../SUBMIT.md).
-
-> **Note:** We currently support C++17 only for algorithmic problem solutions.
+> **Technical Reference**: Problem structure, Judge API, and evaluation details for algorithmic track.
+>
+> For model evaluation workflow, see [SUBMIT.md](../SUBMIT.md).
 
 ### Problem Structure
 
@@ -19,6 +19,11 @@ problems/{id}/
 └── chk.cc / interactor.cc   # Checker or interactor
 ```
 
+### Solution Requirements
+
+- **Language**: C++17 only
+- **Single file**: Submit one `.cpp` file per problem
+
 ### How It Works
 
 1. **Fetch problem** statement from judge API
@@ -27,7 +32,7 @@ problems/{id}/
 4. **Poll** for result
 5. **Score** based on test case pass rate
 
-The judge sever will save solutions and their detailed judging results under the folder `algorithmic/submissions`.
+The judge server will save solutions and their detailed judging results under the folder `algorithmic/submissions`.
 
 
 ### Judge API
@@ -43,9 +48,9 @@ The judge sever will save solutions and their detailed judging results under the
 ### Python API
 
 ```python
-from frontier_cs import FrontierCSEvaluator
+from frontier_cs import SingleEvaluator
 
-evaluator = FrontierCSEvaluator()
+evaluator = SingleEvaluator()
 
 # Evaluate an algorithmic problem
 result = evaluator.evaluate("algorithmic", problem_id=1, code=cpp_code)
@@ -69,15 +74,12 @@ frontier eval algorithmic 1 solution.cpp --unbounded
 
 ### Batch Evaluation
 
+For batch evaluation of multiple solutions, see [SUBMIT.md](../SUBMIT.md#step-2-run-evaluation).
+
 ```bash
-# Evaluate all solutions in algorithmic/solutions/
-frontier-eval batch algorithmic
-
-# With SkyPilot (cloud go-judge)
-frontier-eval batch algorithmic --backend skypilot
-
-# Check status
-frontier-eval batch algorithmic --status
+frontier batch algorithmic                    # Evaluate all in solutions/
+frontier batch algorithmic --backend skypilot # Use cloud go-judge
+frontier batch algorithmic --status           # Check progress
 ```
 
 **Note:** For algorithmic track, `--clusters` is not used. All workers share a single go-judge server (local Docker or SkyPilot).
@@ -98,8 +100,6 @@ frontier eval algorithmic 1 solution.cpp --judge-url http://$(sky status --ip al
 ### Creating Problems
 
 > For contributing problems to Frontier-CS (detailed file formats, CI requirements), see [CONTRIBUTING.md](../CONTRIBUTING.md#algorithmic-problems).
-
-For local testing, create `problems/{id}/` with required files and restart the judge.
 
 ### Judge Server Configuration
 

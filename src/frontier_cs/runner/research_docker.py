@@ -4,7 +4,6 @@ Docker runner for research problems.
 Runs evaluations in local Docker containers.
 """
 
-import json
 import shutil
 import subprocess
 import tempfile
@@ -13,11 +12,10 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 from .base import ResearchRunner, EvaluationResult, EvaluationStatus
-from ..config import load_problem_config, DockerConfig, DEFAULT_DOCKER_IMAGE
-from ..gen.solution_format import FAILED_EXTENSION
+from ..config import DockerConfig, DEFAULT_DOCKER_IMAGE, get_problem_extension
 
 
-class DockerRunner(ResearchRunner):
+class ResearchDockerRunner(ResearchRunner):
     """
     Runner for research problems using local Docker.
 
@@ -38,7 +36,7 @@ class DockerRunner(ResearchRunner):
         timeout: Optional[int] = None,
     ):
         """
-        Initialize DockerRunner.
+        Initialize ResearchDockerRunner.
 
         Args:
             base_dir: Base directory of Frontier-CS repo (auto-detected if None)
@@ -81,19 +79,15 @@ class DockerRunner(ResearchRunner):
         Returns:
             EvaluationResult with score and status
         """
-        problem_path = self.get_problem_path(problem_id)
-
-        if not problem_path.exists():
-            return EvaluationResult(
-                problem_id=problem_id,
-                status=EvaluationStatus.ERROR,
-                message=f"Problem not found: {problem_path}",
-            )
+        problem_path, error = self._get_problem_path_or_error(problem_id)
+        if error:
+            return error
 
         # Create temp directory with solution
         with tempfile.TemporaryDirectory(prefix="frontier_eval_") as temp_dir:
             temp_path = Path(temp_dir)
-            solution_path = temp_path / "solution.py"
+            ext = get_problem_extension(problem_path)
+            solution_path = temp_path / f"solution.{ext}"
             solution_path.write_text(solution_code, encoding="utf-8")
 
             return self._run_evaluation(problem_id, problem_path, solution_path)
@@ -103,37 +97,16 @@ class DockerRunner(ResearchRunner):
         problem_id: str,
         solution_path: Path,
         *,
-        solution_id: Optional[str] = None,  # Unused, for API compatibility with SkyPilotRunner
+        solution_id: Optional[str] = None,  # Unused, for API compatibility with ResearchSkyPilotRunner
     ) -> EvaluationResult:
         """Evaluate a solution file for a research problem."""
-        if not solution_path.exists():
-            return EvaluationResult(
-                problem_id=problem_id,
-                status=EvaluationStatus.ERROR,
-                message=f"Solution file not found: {solution_path}",
-            )
+        error = self._validate_solution_file(problem_id, solution_path)
+        if error:
+            return error
 
-        # Check for generation failure marker (.FAILED file)
-        if solution_path.suffix == f".{FAILED_EXTENSION}":
-            try:
-                meta = json.loads(solution_path.read_text(encoding="utf-8"))
-                error_msg = meta.get("error", "Generation failed")
-            except (json.JSONDecodeError, OSError):
-                error_msg = "Generation failed"
-            return EvaluationResult(
-                problem_id=problem_id,
-                status=EvaluationStatus.ERROR,
-                score=0,
-                message=f"Generation failed: {error_msg}",
-            )
-
-        problem_path = self.get_problem_path(problem_id)
-        if not problem_path.exists():
-            return EvaluationResult(
-                problem_id=problem_id,
-                status=EvaluationStatus.ERROR,
-                message=f"Problem not found: {problem_path}",
-            )
+        problem_path, error = self._get_problem_path_or_error(problem_id)
+        if error:
+            return error
 
         return self._run_evaluation(problem_id, problem_path, solution_path)
 
@@ -146,17 +119,16 @@ class DockerRunner(ResearchRunner):
         """Run the actual evaluation in Docker."""
         start_time = time.time()
 
-        # Load config from problem's config.yaml
-        problem_config = load_problem_config(problem_path)
-        runtime_config = problem_config.runtime
-        docker_config = runtime_config.docker
-        uv_project = problem_config.dependencies.get("uv_project")
+        settings = self._load_runtime_settings(problem_path)
+        runtime_config = settings["runtime"]
+        docker_config = settings["docker"]
+        uv_project = settings["uv_project"]
 
         # Determine timeout: user-specified > problem config > default
         if self.timeout is not None:
             effective_timeout = self.timeout
         else:
-            effective_timeout = runtime_config.timeout_seconds or self.DEFAULT_TIMEOUT
+            effective_timeout = settings["timeout_seconds"] or self.DEFAULT_TIMEOUT
 
         # Check GPU requirements
         needs_gpu = docker_config.gpu or runtime_config.requires_gpu or runtime_config.resources.has_gpu
@@ -244,10 +216,11 @@ class DockerRunner(ResearchRunner):
                 dest = workspace / "research" / parent / "common"
                 shutil.copytree(common_dir, dest)
 
-        # Create solution structure
+        # Create solution structure (rename to solution.{ext})
         solution_dir = workspace / "solution"
         solution_dir.mkdir(parents=True)
-        shutil.copy2(solution_path, solution_dir / "solution.py")
+        dest_name = f"solution{solution_path.suffix}"
+        shutil.copy2(solution_path, solution_dir / dest_name)
 
     def _run_docker(
         self,
@@ -301,17 +274,7 @@ class DockerRunner(ResearchRunner):
 
     def _get_run_script(self, uv_project: Optional[str] = None, dind: bool = False) -> str:
         """Get the bash script to run inside Docker."""
-        # Build uv install command if uv_project is specified
-        if uv_project:
-            uv_install_cmd = f'''
-# Install dependencies from uv_project
-if [ -d "{uv_project}" ] && [ -f "{uv_project}/pyproject.toml" ]; then
-    echo "[framework] Installing dependencies from {uv_project}"
-    uv pip install --system -e "{uv_project}"
-fi
-'''
-        else:
-            uv_install_cmd = "# No uv_project specified"
+        uv_install_cmd = self._build_uv_install_cmd(uv_project)
 
         # Build Docker CLI install command for DinD
         if dind:
@@ -342,7 +305,7 @@ find /work -name "*.sh" -exec chmod +x {{}} \\;
 # Create execution_env and copy solution BEFORE set_up_env.sh
 # (some scripts expect this structure to exist)
 mkdir -p /work/execution_env/solution_env
-cp /work/solution/solution.py /work/execution_env/solution_env/
+cp /work/solution/solution.* /work/execution_env/solution_env/
 
 # Find the problem directory
 PROBLEM_DIR=$(find research -mindepth 1 -maxdepth 4 -name "evaluator.py" -exec dirname {{}} \\; | head -1)

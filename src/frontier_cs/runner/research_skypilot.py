@@ -9,7 +9,6 @@ Supports two result storage modes:
 """
 
 import hashlib
-import json
 import shutil
 import subprocess
 import tempfile
@@ -20,8 +19,8 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 from .base import ResearchRunner, EvaluationResult, EvaluationStatus
-from ..config import load_problem_config
-from ..gen.solution_format import FAILED_EXTENSION
+from .cluster_cleanup import ActiveClusterRegistry
+from ..config import get_problem_extension
 
 
 def _sanitize_name(name: str) -> str:
@@ -40,7 +39,7 @@ def _sanitize_name(name: str) -> str:
     return "".join(cleaned).strip("-") or "job"
 
 
-class SkyPilotRunner(ResearchRunner):
+class ResearchSkyPilotRunner(ResearchRunner):
     """
     Runner for research problems using SkyPilot.
 
@@ -69,7 +68,7 @@ class SkyPilotRunner(ResearchRunner):
         bucket_url: Optional[str] = None,
     ):
         """
-        Initialize SkyPilotRunner.
+        Initialize ResearchSkyPilotRunner.
 
         Args:
             base_dir: Base directory of Frontier-CS repo
@@ -106,19 +105,15 @@ class SkyPilotRunner(ResearchRunner):
         Returns:
             EvaluationResult with score and status
         """
-        problem_path = self.get_problem_path(problem_id)
-
-        if not problem_path.exists():
-            return EvaluationResult(
-                problem_id=problem_id,
-                status=EvaluationStatus.ERROR,
-                message=f"Problem not found: {problem_path}",
-            )
+        problem_path, error = self._get_problem_path_or_error(problem_id)
+        if error:
+            return error
 
         # Create temp directory with solution
         with tempfile.TemporaryDirectory(prefix="frontier_sky_") as temp_dir:
             temp_path = Path(temp_dir)
-            solution_path = temp_path / "solution.py"
+            ext = get_problem_extension(problem_path)
+            solution_path = temp_path / f"solution.{ext}"
             solution_path.write_text(solution_code, encoding="utf-8")
 
             return self._run_evaluation(problem_id, problem_path, solution_path, solution_id)
@@ -131,34 +126,13 @@ class SkyPilotRunner(ResearchRunner):
         solution_id: Optional[str] = None,
     ) -> EvaluationResult:
         """Evaluate a solution file using SkyPilot."""
-        if not solution_path.exists():
-            return EvaluationResult(
-                problem_id=problem_id,
-                status=EvaluationStatus.ERROR,
-                message=f"Solution file not found: {solution_path}",
-            )
+        error = self._validate_solution_file(problem_id, solution_path)
+        if error:
+            return error
 
-        # Check for generation failure marker (.FAILED file)
-        if solution_path.suffix == f".{FAILED_EXTENSION}":
-            try:
-                meta = json.loads(solution_path.read_text(encoding="utf-8"))
-                error_msg = meta.get("error", "Generation failed")
-            except (json.JSONDecodeError, OSError):
-                error_msg = "Generation failed"
-            return EvaluationResult(
-                problem_id=problem_id,
-                status=EvaluationStatus.ERROR,
-                score=0,
-                message=f"Generation failed: {error_msg}",
-            )
-
-        problem_path = self.get_problem_path(problem_id)
-        if not problem_path.exists():
-            return EvaluationResult(
-                problem_id=problem_id,
-                status=EvaluationStatus.ERROR,
-                message=f"Problem not found: {problem_path}",
-            )
+        problem_path, error = self._get_problem_path_or_error(problem_id)
+        if error:
+            return error
 
         return self._run_evaluation(problem_id, problem_path, solution_path, solution_id)
 
@@ -174,14 +148,13 @@ class SkyPilotRunner(ResearchRunner):
 
         start_time = time.time()
 
-        # Load config from config.yaml
-        problem_config = load_problem_config(problem_path)
-        runtime_config = problem_config.runtime
-        docker_config = runtime_config.docker
+        settings = self._load_runtime_settings(problem_path)
+        runtime_config = settings["runtime"]
+        docker_config = settings["docker"]
         res = runtime_config.resources
 
         # Extract uv_project for automatic dependency installation
-        uv_project = problem_config.dependencies.get("uv_project")
+        uv_project = settings["uv_project"]
 
         # Determine resources
         accelerators = res.accelerators
@@ -191,12 +164,13 @@ class SkyPilotRunner(ResearchRunner):
             accelerators = self.DEFAULT_GPU
 
         # Determine timeout from config or default
-        effective_timeout = runtime_config.timeout_seconds or self.DEFAULT_TIMEOUT
+        effective_timeout = settings["timeout_seconds"] or self.DEFAULT_TIMEOUT
 
         # Create cluster name with date to avoid conflicts between runs
         date_str = datetime.now().strftime("%m%d%H%M")
         digest = hashlib.md5(f"{problem_id}-{date_str}".encode()).hexdigest()[:8]
         cluster_name = _sanitize_name(f"eval-{problem_id}-{digest}")[:63]
+        ActiveClusterRegistry.register(cluster_name)
 
         # Build pair_id for bucket storage
         pair_id = f"{solution_id}:{problem_id}" if solution_id else None
@@ -307,13 +281,14 @@ class SkyPilotRunner(ResearchRunner):
                 )
 
             finally:
-                # Only down immediately if no autostop and not keeping cluster
-                if not self.keep_cluster and self.idle_timeout is None:
+                # Always down after evaluation unless explicitly keeping the cluster.
+                if not self.keep_cluster:
                     try:
                         down_request = sky.down(cluster_name)
                         sky.stream_and_get(down_request)
                     except Exception:
                         pass
+                ActiveClusterRegistry.unregister(cluster_name)
 
     def _setup_mounts(
         self,
@@ -337,10 +312,11 @@ class SkyPilotRunner(ResearchRunner):
             if common_dir.is_dir():
                 mounts[f"{remote_base}/research/{parent}/common"] = str(common_dir.resolve())
 
-        # Mount solution
+        # Mount solution (rename to solution.{ext})
         solution_dir = workspace / "solution"
         solution_dir.mkdir(parents=True)
-        shutil.copy2(solution_path, solution_dir / "solution.py")
+        dest_name = f"solution{solution_path.suffix}"
+        shutil.copy2(solution_path, solution_dir / dest_name)
         mounts[f"{remote_base}/solution"] = str(solution_dir.resolve())
 
         return mounts
@@ -373,7 +349,7 @@ class SkyPilotRunner(ResearchRunner):
     ) -> str:
         """Get run script for SkyPilot task."""
         gpu_flags = "--gpus all" if gpu else ""
-        timeout_prefix = f"timeout {timeout_seconds}s " if timeout_seconds else ""
+        timeout_prefix = self._build_timeout_prefix(timeout_seconds)
         dind_flags = '-v /var/run/docker.sock:/var/run/docker.sock' if dind else ""
 
         # Build Docker CLI install command for DinD (socket is mounted but CLI needed)
@@ -420,20 +396,7 @@ class SkyPilotRunner(ResearchRunner):
         else:
             bucket_write = ""
 
-        # Build uv pip install command if uv_project is specified in config.yaml
-        # If uv_overrides.txt exists in the project, use it to protect system packages
-        if uv_project:
-            uv_sync_cmd = textwrap.dedent(f'''
-                    if [ -d "{uv_project}" ] && [ -f "{uv_project}/pyproject.toml" ]; then
-                        echo "[framework] Installing dependencies from {uv_project}"
-                        if [ -f "{uv_project}/uv_overrides.txt" ]; then
-                            uv pip install --system --overrides "{uv_project}/uv_overrides.txt" -e "{uv_project}"
-                        else
-                            uv pip install --system -e "{uv_project}"
-                        fi
-                    fi''').strip()
-        else:
-            uv_sync_cmd = "# No uv_project specified in config.yaml"
+        uv_sync_cmd = self._build_uv_install_cmd(uv_project)
 
         return textwrap.dedent(f"""\
             set -euo pipefail
@@ -459,7 +422,7 @@ class SkyPilotRunner(ResearchRunner):
                     # Create execution_env and copy solution BEFORE set_up_env.sh
                     # (some scripts expect this structure to exist)
                     mkdir -p /work/execution_env/solution_env
-                    cp /work/solution/solution.py /work/execution_env/solution_env/
+                    cp /work/solution/solution.* /work/execution_env/solution_env/
                     echo "[framework] Evaluating: {pair_id or problem_id}"
 
                     cd /work/research/{problem_id}
@@ -637,43 +600,21 @@ class SkyPilotRunner(ResearchRunner):
 
         start_time = time.time()
 
-        problem_path = self.get_problem_path(problem_id)
-        if not problem_path.exists():
-            return EvaluationResult(
-                problem_id=problem_id,
-                status=EvaluationStatus.ERROR,
-                message=f"Problem not found: {problem_path}",
-            )
+        error = self._validate_solution_file(problem_id, solution_path)
+        if error:
+            return error
 
-        if not solution_path.exists():
-            return EvaluationResult(
-                problem_id=problem_id,
-                status=EvaluationStatus.ERROR,
-                message=f"Solution file not found: {solution_path}",
-            )
+        problem_path, error = self._get_problem_path_or_error(problem_id)
+        if error:
+            return error
 
-        # Check for generation failure marker (.FAILED file)
-        if solution_path.suffix == f".{FAILED_EXTENSION}":
-            try:
-                meta = json.loads(solution_path.read_text(encoding="utf-8"))
-                error_msg = meta.get("error", "Generation failed")
-            except (json.JSONDecodeError, OSError):
-                error_msg = "Generation failed"
-            return EvaluationResult(
-                problem_id=problem_id,
-                status=EvaluationStatus.ERROR,
-                score=0,
-                message=f"Generation failed: {error_msg}",
-            )
-
-        # Load config
-        problem_config = load_problem_config(problem_path)
-        runtime_config = problem_config.runtime
-        docker_config = runtime_config.docker
-        uv_project = problem_config.dependencies.get("uv_project")
+        settings = self._load_runtime_settings(problem_path)
+        runtime_config = settings["runtime"]
+        docker_config = settings["docker"]
+        uv_project = settings["uv_project"]
 
         # Determine timeout from config or default
-        effective_timeout = runtime_config.timeout_seconds or self.DEFAULT_TIMEOUT
+        effective_timeout = settings["timeout_seconds"] or self.DEFAULT_TIMEOUT
 
         # Create workspace with file mounts
         with tempfile.TemporaryDirectory(prefix="frontier_exec_") as workspace_dir:
@@ -779,3 +720,5 @@ class SkyPilotRunner(ResearchRunner):
 
         with ThreadPoolExecutor(max_workers=len(cluster_names)) as executor:
             executor.map(down_one, cluster_names)
+
+    # Active cluster cleanup is handled via ActiveClusterRegistry in callers.

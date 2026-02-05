@@ -19,7 +19,7 @@ from ..gen.solution_format import FAILED_EXTENSION
 logger = logging.getLogger(__name__)
 
 
-class AlgorithmicRunner(Runner):
+class AlgorithmicLocalRunner(Runner):
     """
     Runner for algorithmic problems.
 
@@ -178,7 +178,7 @@ class AlgorithmicRunner(Runner):
                 problem_id=pid,
                 status=EvaluationStatus.ERROR,
                 message=f"Judge server at {self.judge_url} not available. "
-                        f"Run 'docker compose up -d' in algorithmic/ or use --skypilot",
+                        f"Run 'docker compose up -d' in algorithmic/ or use --backend skypilot",
             )
 
         # Check for empty code

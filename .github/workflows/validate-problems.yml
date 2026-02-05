@@ -78,6 +78,23 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
+      - name: Setup AWS credentials
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        run: |
+          mkdir -p ~/.aws
+          cat > ~/.aws/credentials << EOF
+          [default]
+          aws_access_key_id = $AWS_ACCESS_KEY_ID
+          aws_secret_access_key = $AWS_SECRET_ACCESS_KEY
+          EOF
+          cat > ~/.aws/config << EOF
+          [default]
+          region = us-east-1
+          EOF
+          echo "AWS credentials configured"
+
       - name: Setup GCP credentials
         env:
           GCP_CREDS: ${{ secrets.GCP_CREDENTIALS }}
@@ -85,18 +102,29 @@ jobs:
           if [ -n "$GCP_CREDS" ]; then
             echo "$GCP_CREDS" > /tmp/gcp-key.json
             echo "GOOGLE_APPLICATION_CREDENTIALS=/tmp/gcp-key.json" >> $GITHUB_ENV
+            gcloud auth activate-service-account --key-file=/tmp/gcp-key.json
+            gcloud config set project ${{ secrets.GCP_PROJECT_ID }}
             echo "GCP credentials configured"
-          else
-            echo "No GCP credentials available, skipping..."
+          fi
+
+      - name: Generate SSH key for SkyPilot
+        run: |
+          mkdir -p ~/.ssh
+          if [ ! -f ~/.ssh/sky-key ]; then
+            ssh-keygen -t rsa -b 4096 -f ~/.ssh/sky-key -N "" -C "sky-ci"
+            echo "Generated SSH key for SkyPilot"
           fi
 
       - name: Setup SkyPilot
         run: |
-          uv run sky check || echo "SkyPilot check failed, continuing..."
+          uv run sky check aws gcp || echo "SkyPilot check failed, continuing..."
 
       - name: Validate problems
+        timeout-minutes: 30
         run: |
           echo "Validating research problems: ${{ needs.detect-changes.outputs.research }}"
           uv run python scripts/validate_problems.py \
             --track research \
-            --problems ${{ needs.detect-changes.outputs.research }}
+            --timeout 1200 \
+            --problems ${{ needs.detect-changes.outputs.research }} \
+            --verbose

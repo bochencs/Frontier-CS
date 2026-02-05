@@ -28,7 +28,8 @@ except ImportError:
     HAS_TQDM = False
 
 from ..runner.base import EvaluationResult, EvaluationStatus
-from ..runner.docker import DockerRunner
+from ..runner.research_docker import ResearchDockerRunner
+from ..config import get_problem_extension
 from .pair import Pair, expand_pairs, read_pairs_file, read_problems_file, read_models_file, read_variants_file
 from .state import EvaluationState, PairResult, hash_file, hash_directory
 
@@ -142,6 +143,32 @@ class BatchEvaluator:
             raise RuntimeError(f"pyproject.toml not found in {base}")
         return base
 
+    def _get_problems_dir(self) -> Path:
+        """Get the problems directory for the current track."""
+        if self.problems_dir:
+            return self.problems_dir
+        if self.track == "algorithmic":
+            return self.base_dir / "algorithmic" / "problems"
+        return self.base_dir / "research" / "problems"
+
+    def _get_problem_extension(self, problem: str) -> str:
+        """Get file extension for a problem based on its config.yaml.
+
+        For algorithmic track, always returns "cpp".
+        For research track, reads config.yaml to determine language.
+        """
+        if self.track == "algorithmic":
+            return "cpp"
+
+        # Research track: use shared function
+        problems_dir = self._get_problems_dir()
+        problem_path = problems_dir / problem
+        return get_problem_extension(problem_path)
+
+    def _build_problem_extensions(self, problems: List[str]) -> Dict[str, str]:
+        """Build a mapping of problem -> extension for a list of problems."""
+        return {problem: self._get_problem_extension(problem) for problem in problems}
+
     def _create_runner(self):
         """Create the appropriate runner based on track and backend."""
         if self.track == "algorithmic":
@@ -154,22 +181,22 @@ class BatchEvaluator:
                     idle_timeout=self.idle_timeout,
                 )
             else:
-                from ..runner.algorithmic import AlgorithmicRunner
-                return AlgorithmicRunner(
+                from ..runner.algorithmic_local import AlgorithmicLocalRunner
+                return AlgorithmicLocalRunner(
                     judge_url=self.judge_url,
                     problems_dir=self.problems_dir,
                 )
         else:
             # research track
             if self.backend == "docker":
-                return DockerRunner(
+                return ResearchDockerRunner(
                     base_dir=self.base_dir,
                     problems_dir=self.problems_dir,
                     timeout=self.timeout,
                 )
             else:
-                from ..runner.skypilot import SkyPilotRunner
-                return SkyPilotRunner(
+                from ..runner.research_skypilot import ResearchSkyPilotRunner
+                return ResearchSkyPilotRunner(
                     base_dir=self.base_dir,
                     problems_dir=self.problems_dir,
                     bucket_url=self.bucket_url,
@@ -450,7 +477,7 @@ class BatchEvaluator:
 
     def _create_cluster_pool(self) -> None:
         """Create a pool of SkyPilot clusters for parallel evaluation."""
-        from ..runner.skypilot import SkyPilotRunner
+        from ..runner.research_skypilot import ResearchSkyPilotRunner
 
         logger.info(f"Creating {self.clusters} SkyPilot clusters...")
 
@@ -485,8 +512,8 @@ class BatchEvaluator:
             return
 
         logger.info(f"Terminating {len(self._cluster_names)} clusters...")
-        from ..runner.skypilot import SkyPilotRunner
-        SkyPilotRunner.down_clusters(self._cluster_names)
+        from ..runner.research_skypilot import ResearchSkyPilotRunner
+        ResearchSkyPilotRunner.down_clusters(self._cluster_names)
         self._cluster_names = []
 
     def _get_default_solutions_dir(self) -> Path:
@@ -674,11 +701,12 @@ class BatchEvaluator:
     ) -> EvaluationState:
         """Evaluate all problems for a given model."""
         solutions_dir = self._get_default_solutions_dir()
-        ext = "cpp" if self.track == "algorithmic" else "py"
+        problem_extensions = self._build_problem_extensions(problems)
 
         pairs = expand_pairs(
             problems, [model], variants,
-            solutions_dir=solutions_dir, validate_paths=True, ext=ext,
+            solutions_dir=solutions_dir, validate_paths=True,
+            problem_extensions=problem_extensions,
         )
 
         if not pairs:
@@ -698,11 +726,12 @@ class BatchEvaluator:
     ) -> EvaluationState:
         """Evaluate a problem across all given models."""
         solutions_dir = self._get_default_solutions_dir()
-        ext = "cpp" if self.track == "algorithmic" else "py"
+        problem_extensions = self._build_problem_extensions([problem])
 
         pairs = expand_pairs(
             [problem], models, variants,
-            solutions_dir=solutions_dir, validate_paths=True, ext=ext,
+            solutions_dir=solutions_dir, validate_paths=True,
+            problem_extensions=problem_extensions,
         )
 
         if not pairs:
@@ -737,11 +766,12 @@ class BatchEvaluator:
         variants = read_variants_file(variants_file) if variants_file else [0]
 
         solutions_dir = self._get_default_solutions_dir()
-        ext = "cpp" if self.track == "algorithmic" else "py"
+        problem_extensions = self._build_problem_extensions(problems)
 
         pairs = expand_pairs(
             problems, models, variants,
-            solutions_dir=solutions_dir, validate_paths=True, ext=ext,
+            solutions_dir=solutions_dir, validate_paths=True,
+            problem_extensions=problem_extensions,
         )
 
         logger.info(f"Expanded {len(problems)} problems × {len(models)} models × {len(variants)} variants = {len(pairs)} pairs")
@@ -810,11 +840,12 @@ class BatchEvaluator:
     ) -> EvaluationState:
         """Evaluate only missing pairs (those not yet in results)."""
         solutions_dir = self._get_default_solutions_dir()
-        ext = "cpp" if self.track == "algorithmic" else "py"
+        problem_extensions = self._build_problem_extensions(problems)
 
         all_pairs = expand_pairs(
             problems, models, variants,
-            solutions_dir=solutions_dir, validate_paths=True, ext=ext,
+            solutions_dir=solutions_dir, validate_paths=True,
+            problem_extensions=problem_extensions,
         )
 
         missing = [p for p in all_pairs if p.id not in self.state.results]

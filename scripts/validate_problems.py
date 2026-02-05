@@ -12,11 +12,12 @@ Usage:
 """
 
 import argparse
-import json
-import subprocess
 import sys
 from pathlib import Path
 from typing import Optional
+
+from frontier_cs.config import get_problem_extension
+from frontier_cs.single_evaluator import SingleEvaluator
 
 
 def find_reference_solution(track: str, problem_id: str) -> Optional[Path]:
@@ -32,8 +33,10 @@ def find_reference_solution(track: str, problem_id: str) -> Optional[Path]:
         if ref_path.exists():
             return ref_path
     else:
-        # Research: reference.py in problem directory
-        ref_path = Path(f"research/problems/{problem_id}/reference.py")
+        # Research: extension based on config.yaml language field
+        problem_path = Path(f"research/problems/{problem_id}")
+        ext = get_problem_extension(problem_path)
+        ref_path = problem_path / f"reference.{ext}"
         if ref_path.exists():
             return ref_path
     return None
@@ -43,62 +46,23 @@ def run_evaluation(
     track: str, problem_id: str, solution_path: Path, timeout: int = 300
 ) -> dict:
     """
-    Run evaluation using frontier CLI.
+    Run evaluation using Python API.
 
     Returns:
         Dict with keys: success, score, message
     """
-    cmd = [
-        "uv",
-        "run",
-        "frontier",
-        "eval",
-        problem_id,
-        str(solution_path),
-        "--json",
-    ]
-
-    if track == "algorithmic":
-        cmd.append("--algorithmic")
-
+    evaluator = SingleEvaluator(timeout=timeout)
     try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-
-        # Parse JSON output (may have prefix text before JSON array)
-        if result.returncode == 0 and result.stdout.strip():
-            stdout = result.stdout.strip()
-            # Find JSON array in output
-            json_start = stdout.find("[")
-            if json_start >= 0:
-                try:
-                    data = json.loads(stdout[json_start:])
-                    if isinstance(data, list) and len(data) > 0:
-                        item = data[0]
-                        return {
-                            "success": item.get("status") == "success",
-                            "score": item.get("score", 0),
-                            "message": item.get("message", ""),
-                        }
-                except json.JSONDecodeError:
-                    pass
-
-        # Fallback: check stderr for error messages
+        result = evaluator.evaluate_file(track, problem_id, solution_path)
+        message_parts = []
+        if result.message:
+            message_parts.append(result.message)
+        if result.logs:
+            message_parts.append(result.logs)
         return {
-            "success": False,
-            "score": 0,
-            "message": result.stderr or result.stdout or "Unknown error",
-        }
-
-    except subprocess.TimeoutExpired:
-        return {
-            "success": False,
-            "score": 0,
-            "message": f"Evaluation timed out after {timeout}s",
+            "success": result.success,
+            "score": result.score,
+            "message": "\n".join(message_parts).strip(),
         }
     except Exception as e:
         return {
@@ -132,7 +96,9 @@ def validate_problem(
         if track == "algorithmic":
             print(f"  Expected: algorithmic/problems/{problem_id}/reference.cpp")
         else:
-            print(f"  Expected: research/problems/{problem_id}/reference.py")
+            problem_path = Path(f"research/problems/{problem_id}")
+            ext = get_problem_extension(problem_path)
+            print(f"  Expected: research/problems/{problem_id}/reference.{ext}")
         return False
 
     print(f"  Reference: {ref_path}")
@@ -145,7 +111,8 @@ def validate_problem(
         print(f"  Result: {result}")
 
     # Check result
-    if result["success"] and result["score"] > 0:
+    # Accept score >= 0 for baseline references (score=0 means evaluation works, just no speedup)
+    if result["success"] and result["score"] is not None and result["score"] >= 0:
         print(f"  PASS: score = {result['score']}")
         return True
     else:

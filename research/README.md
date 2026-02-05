@@ -1,20 +1,14 @@
 # Research Problems
 
-> For complete model evaluation workflow (prepare solutions, run batch evaluation, submit to leaderboard), see [SUBMIT.md](../SUBMIT.md).
+> **Technical Reference**: Problem structure, evaluation details, and Solution interface for research track.
+>
+> For model evaluation workflow, see [SUBMIT.md](../SUBMIT.md).
 
 Real-world systems challenges requiring domain expertise in GPU computing, distributed systems, ML pipelines, databases, and security.
 
 ## Basic Usage
 
-Research track defaults to SkyPilot (cloud). Requires `sky check` first:
-
-```bash
-# Setup SkyPilot (one-time)
-pip install skypilot-nightly
-sky check
-```
-
-See [SkyPilot docs](https://skypilot.readthedocs.io/en/latest/getting-started/installation.html) for cloud credential setup.
+Research track defaults to SkyPilot (cloud) because problems have specific resource requirements (GPUs, memory, etc.) that can affect evaluation results. Run `sky check` to verify cloud credentials. See [SkyPilot docs](https://skypilot.readthedocs.io/en/latest/getting-started/installation.html) for setup.
 
 ```bash
 # List all problems
@@ -26,51 +20,32 @@ frontier eval research flash_attn <your_solution.py>
 # Use Docker instead (no cloud setup needed)
 frontier eval research flash_attn <your_solution.py> --backend docker
 
-# Evaluate multiple problems
-frontier eval research --problems flash_attn,cross_entropy <your_solution.py>
 ```
 
 ## Batch Evaluation
 
-Batch evaluation automatically scans `solutions/` and parses problem IDs from filenames:
+For batch evaluation of multiple solutions, see [SUBMIT.md](../SUBMIT.md#step-2-run-evaluation).
 
 ```bash
-# Evaluate all solutions (uses SkyPilot by default, auto-skips completed)
-frontier-eval batch research
-
-# With custom parallelism
-frontier-eval batch research --workers 20 --clusters 4
-
-# Check status
-frontier-eval batch research --status
-
-# Force re-evaluate all
-frontier-eval batch research --no-resume
-
-# Retry failed evaluations
-frontier-eval batch research --retry-failed
+frontier batch research                    # Evaluate all in solutions/
+frontier batch research --model my_model   # Filter by model
+frontier batch research --status           # Check progress
 ```
-
-**Parameters:**
-- `--workers`: Number of parallel workers (default: 10)
-- `--clusters`: Number of SkyPilot clusters for load-balancing (default: same as workers, research + skypilot only)
-
-With `--workers 20 --clusters 4`, 20 workers share 4 clusters via load-balancing.
 
 ## Python API
 
 ```python
-from frontier_cs import FrontierCSEvaluator
+from frontier_cs import SingleEvaluator
 
-evaluator = FrontierCSEvaluator()
+evaluator = SingleEvaluator()
 
-# Single problem
+# Single problem (uses SkyPilot by default for research)
 result = evaluator.evaluate("research", problem_id="flash_attn", code=my_code)
 print(f"Score: {result.score}")
 
-# With SkyPilot
+# Use Docker instead
 result = evaluator.evaluate("research", problem_id="flash_attn", code=my_code,
-                           backend="skypilot")
+                           backend="docker")
 ```
 
 ## Problem Structure
@@ -105,6 +80,12 @@ research/problems/
 **Note:** `resources/`, `common/`, and `__pycache__/` directories are excluded from problem detection. A valid problem directory must contain `evaluator.py` or `evaluate.py`.
 
 > For creating new problems (config.yaml format, evaluation scripts, uv_overrides.txt), see [CONTRIBUTING.md](../CONTRIBUTING.md#research-problems).
+
+## Solution Requirements
+
+- **Language**: Python only
+- **Interface**: Implement a `Solution` class with a `solve()` method
+- **Single file**: Submit one `solution.py` per problem
 
 ## Solution Interface
 

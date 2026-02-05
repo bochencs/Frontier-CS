@@ -1,6 +1,6 @@
 # Evaluating Your Model
 
-Complete workflow for benchmarking your model on Frontier-CS and submitting results to the leaderboard.
+> **For Model Providers**: Complete workflow for benchmarking your model on Frontier-CS and submitting results to the leaderboard.
 
 ## Step 1: Prepare Solutions
 
@@ -19,7 +19,7 @@ research/solutions/gemm_optimization/squares/my_model.py
 algorithmic/solutions/1/my_model.cpp
 ```
 
-- **Research track**: Python (`.py`)
+- **Research track**: Python (`.py`) by default, or C++ (`.cpp`) if problem specifies `language: cpp` in config.yaml
 - **Algorithmic track**: C++17 (`.cpp`)
 - We recommend generating **5 variants per model** to compute Score@5
 
@@ -36,7 +36,7 @@ research/solutions/
 └── ...
 ```
 ```bash
-frontier-eval batch research --model my_model
+frontier batch research --model my_model
 ```
 
 **2. Use your own directory**
@@ -48,7 +48,7 @@ frontier-eval batch research --model my_model
 └── ...
 ```
 ```bash
-frontier-eval batch research --solutions-dir ./my_solutions
+frontier batch research --solutions-dir ./my_solutions
 ```
 
 **3. Explicit pairs file**
@@ -59,39 +59,39 @@ frontier-eval batch research --solutions-dir ./my_solutions
 ./my_solutions/cross_entropy/my_model.py:cross_entropy
 ```
 ```bash
-frontier-eval batch research --pairs-file pairs.txt
+frontier batch research --pairs-file pairs.txt
 ```
 
 ### Backend Options
 
 ```bash
 # Research defaults to SkyPilot, algorithmic defaults to Docker
-frontier-eval batch research --backend docker
-frontier-eval batch algorithmic --backend skypilot
+frontier batch research --backend docker
+frontier batch algorithmic --backend skypilot
 
 # Parallelism
-frontier-eval batch research --workers 20 --clusters 4
+frontier batch research --workers 20 --clusters 4
 ```
 
 ### Result Storage
 
 ```bash
 # Local (default): results saved to ./results/batch/{track}/
-frontier-eval batch research
+frontier batch research
 
 # Cloud bucket (requires --backend skypilot): results written directly to S3/GCS
-frontier-eval batch research --bucket-url s3://my-bucket/results
+frontier batch research --bucket-url s3://my-bucket/results
 
 # Sync from bucket to local
-frontier-eval batch research --bucket-url s3://my-bucket/results --sync-bucket
+frontier batch research --bucket-url s3://my-bucket/results --sync-bucket
 ```
 
 ### Control Options
 
 ```bash
-frontier-eval batch research --status          # Check status
-frontier-eval batch research --no-resume       # Force re-evaluate all
-frontier-eval batch research --retry-failed    # Retry failed (including score=0)
+frontier batch research --status          # Check status
+frontier batch research --no-resume       # Force re-evaluate all
+frontier batch research --retry-failed    # Retry failed (including score=0)
 ```
 
 - Incremental evaluation with hash-based caching (solution/problem changes trigger re-evaluation)
@@ -114,7 +114,7 @@ We welcome submissions from all models and agent frameworks. To have your result
 
 ### Algorithmic Problems
 
-We currently release **1 -- 3 public test case** per problem for local testing and debugging. Full evaluation (with all test cases) is performed on our servers.
+We currently release **1-3 public test cases** per problem for local testing and debugging. Full evaluation (with all test cases) is performed on our servers.
 
 #### What to Submit
 
@@ -174,7 +174,7 @@ Problem (e.g., gemm_optimization, poc_generation)
 
 Each variant has a unique **Problem ID** based on its path under `research/`.
 
-The full list of all evaluatable variants is in [`research/problems.txt`](research/problems.txt) (109 variants total, aggregated into ~50 categories for reporting).
+The full list of all evaluatable variants is in [`research/scripts/problems.txt`](research/scripts/problems.txt).
 
 | Type | Example Path | Problem ID |
 |------|-------------|------------|
@@ -309,7 +309,9 @@ export GOOGLE_API_KEY=...
 
 ### Generate Solutions
 
-#### Research Track (Python)
+#### Research Track
+
+Most research problems are Python, but some (e.g., `nbody_simulation`) require C++. The language is configured per-problem via `language` field in `config.yaml`.
 
 ```bash
 # Generate one solution

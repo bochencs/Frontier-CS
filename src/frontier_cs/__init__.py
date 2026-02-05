@@ -2,19 +2,19 @@
 Frontier-CS: Evaluation framework for frontier CS problems.
 
 Usage:
-    from frontier_cs import FrontierCSEvaluator
+    from frontier_cs import SingleEvaluator
 
-    evaluator = FrontierCSEvaluator()
+    evaluator = SingleEvaluator()
 
-    # Algorithmic problems
+    # Algorithmic problems (uses Docker by default)
     score = evaluator.evaluate("algorithmic", problem_id=1, code=cpp_code)
 
-    # Research problems (local Docker)
+    # Research problems (uses SkyPilot by default)
     score = evaluator.evaluate("research", problem_id="flash_attn", code=py_code)
 
-    # Research problems (SkyPilot cloud)
+    # Override backend
     score = evaluator.evaluate("research", problem_id="flash_attn", code=py_code,
-                               backend="skypilot")
+                               backend="docker")
 
     # Batch evaluation with incremental progress
     from frontier_cs.batch import BatchEvaluator
@@ -31,12 +31,12 @@ Usage:
     batch.# Use batch.scan_solutions_dir() or evaluate_pairs()
 """
 
-from .evaluator import FrontierCSEvaluator
+from .single_evaluator import SingleEvaluator
 from .config import RuntimeConfig, ResourcesConfig, DockerConfig, ProblemConfig
 from .runner import EvaluationResult
 
 __all__ = [
-    "FrontierCSEvaluator",
+    "SingleEvaluator",
     "RuntimeConfig",
     "ResourcesConfig",
     "DockerConfig",

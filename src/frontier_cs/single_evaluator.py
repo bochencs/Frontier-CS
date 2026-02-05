@@ -5,38 +5,43 @@ Provides a single interface for evaluating both algorithmic and research problem
 with support for different backends (local Docker, SkyPilot cloud).
 """
 
+import atexit
+import signal
 from pathlib import Path
 from typing import List, Literal, Optional, Union
 
-from .runner import EvaluationResult, DockerRunner, AlgorithmicRunner
+from .runner import AlgorithmicLocalRunner, EvaluationResult, ResearchDockerRunner
 from .runner.base import Runner
+from .runner.cluster_cleanup import ActiveClusterRegistry
+from .runner.research_skypilot import ResearchSkyPilotRunner
+from .runner.algorithmic_skypilot import AlgorithmicSkyPilotRunner
 
 
 TrackType = Literal["algorithmic", "research"]
 BackendType = Literal["docker", "skypilot"]
 
 
-class FrontierCSEvaluator:
+class SingleEvaluator:
     """
     Unified evaluator for Frontier-CS problems.
 
     Example usage:
-        evaluator = FrontierCSEvaluator()
+        evaluator = SingleEvaluator()
 
-        # Algorithmic problem
+        # Algorithmic problem (uses Docker by default)
         result = evaluator.evaluate("algorithmic", problem_id=1, code=cpp_code)
 
-        # Research problem (local Docker)
+        # Research problem (uses SkyPilot by default)
         result = evaluator.evaluate("research", problem_id="flash_attn", code=py_code)
 
-        # Research problem (SkyPilot)
+        # Override backend
         result = evaluator.evaluate("research", problem_id="flash_attn", code=py_code,
-                                   backend="skypilot")
+                                   backend="docker")
     """
 
     def __init__(
         self,
-        backend: BackendType = "docker",
+        backend: Optional[BackendType] = None,
         base_dir: Optional[Path] = None,
         judge_url: str = "http://localhost:8081",
         cloud: str = "gcp",
@@ -44,12 +49,14 @@ class FrontierCSEvaluator:
         keep_cluster: bool = False,
         idle_timeout: Optional[int] = 10,
         timeout: Optional[int] = None,
+        register_cleanup: bool = True,
     ):
         """
-        Initialize FrontierCSEvaluator.
+        Initialize SingleEvaluator.
 
         Args:
-            backend: Default backend for research problems ("docker" or "skypilot")
+            backend: Override default backend ("docker" or "skypilot").
+                     If None, auto-detects: research -> skypilot, algorithmic -> docker
             base_dir: Base directory of Frontier-CS repo (auto-detected if None)
             judge_url: URL of the algorithmic judge server
             cloud: Cloud provider for SkyPilot ("gcp", "aws", "azure")
@@ -66,18 +73,47 @@ class FrontierCSEvaluator:
         self.keep_cluster = keep_cluster
         self.idle_timeout = idle_timeout
         self.timeout = timeout
+        self._register_cleanup = register_cleanup
 
         # Lazy-initialized runners
-        self._algorithmic_runner: Optional[AlgorithmicRunner] = None
+        self._algorithmic_runner: Optional[AlgorithmicLocalRunner] = None
         self._algorithmic_skypilot_runner: Optional[Runner] = None
-        self._docker_runner: Optional[DockerRunner] = None
+        self._docker_runner: Optional[ResearchDockerRunner] = None
         self._skypilot_runner: Optional[Runner] = None
 
+        if self._register_cleanup:
+            self._register_cleanup_hooks()
+
+    def _register_cleanup_hooks(self) -> None:
+        if self.keep_cluster:
+            return
+
+        def cleanup_on_exit():
+            try:
+                names = ActiveClusterRegistry.snapshot()
+                if names:
+                    ResearchSkyPilotRunner.down_clusters(names)
+            except Exception:
+                pass
+            try:
+                ResearchSkyPilotRunner.down_cluster(AlgorithmicSkyPilotRunner.CLUSTER_NAME)
+            except Exception:
+                pass
+
+        def signal_handler(signum, frame):
+            print("\n\nInterrupted! Cleaning up...")
+            cleanup_on_exit()
+            raise SystemExit(1)
+
+        atexit.register(cleanup_on_exit)
+        signal.signal(signal.SIGINT, signal_handler)
+
+
     @property
-    def algorithmic_runner(self) -> AlgorithmicRunner:
+    def algorithmic_runner(self) -> AlgorithmicLocalRunner:
         """Get or create the algorithmic runner."""
         if self._algorithmic_runner is None:
-            self._algorithmic_runner = AlgorithmicRunner(judge_url=self.judge_url)
+            self._algorithmic_runner = AlgorithmicLocalRunner(judge_url=self.judge_url)
         return self._algorithmic_runner
 
     @property
@@ -95,18 +131,20 @@ class FrontierCSEvaluator:
         return self._algorithmic_skypilot_runner
 
     @property
-    def docker_runner(self) -> DockerRunner:
+    def docker_runner(self) -> ResearchDockerRunner:
         """Get or create the Docker runner."""
         if self._docker_runner is None:
-            self._docker_runner = DockerRunner(base_dir=self.base_dir, timeout=self.timeout)
+            self._docker_runner = ResearchDockerRunner(
+                base_dir=self.base_dir, timeout=self.timeout
+            )
         return self._docker_runner
 
     @property
     def skypilot_runner(self) -> Runner:
         """Get or create the SkyPilot runner."""
         if self._skypilot_runner is None:
-            from .runner.skypilot import SkyPilotRunner
-            self._skypilot_runner = SkyPilotRunner(
+            from .runner.research_skypilot import ResearchSkyPilotRunner
+            self._skypilot_runner = ResearchSkyPilotRunner(
                 base_dir=self.base_dir,
                 cloud=self.cloud,
                 region=self.region,
@@ -117,7 +155,14 @@ class FrontierCSEvaluator:
 
     def _get_runner(self, track: TrackType, backend: Optional[BackendType] = None) -> Runner:
         """Get the appropriate runner for a track and backend."""
-        effective_backend = backend or self.default_backend
+        # Priority: explicit backend > init backend > track default
+        if backend:
+            effective_backend = backend
+        elif self.default_backend:
+            effective_backend = self.default_backend
+        else:
+            # Auto-detect: research -> skypilot, algorithmic -> docker
+            effective_backend = "skypilot" if track == "research" else "docker"
 
         if track == "algorithmic":
             if effective_backend == "skypilot":
@@ -289,5 +334,5 @@ def evaluate(
         result = evaluate("research", "flash_attn", solution_code)
         print(f"Score: {result.score}")
     """
-    evaluator = FrontierCSEvaluator(backend=backend)
+    evaluator = SingleEvaluator(backend=backend)
     return evaluator.evaluate(track, problem_id, code)
