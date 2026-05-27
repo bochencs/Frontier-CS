@@ -6,6 +6,7 @@ on:
     paths:
       - 'algorithmic/problems/**'
       - 'research/problems/**'
+      - '2.0/problems/**'
   release:
     types: [published]
   workflow_dispatch:  # Allow manual trigger

@@ -9,6 +9,7 @@ and verifying they achieve score > 0.
 Usage:
     python scripts/validate_problems.py --track algorithmic --problems 101 102
     python scripts/validate_problems.py --track research --problems flash_attn llm_sql/large
+    python scripts/validate_problems.py --track 2.0 --problems erdos_unit_distance
 """
 
 import argparse
@@ -33,8 +34,8 @@ def find_reference_solution(track: str, problem_id: str) -> Optional[Path]:
         if ref_path.exists():
             return ref_path
     else:
-        # Research: extension based on config.yaml language field
-        problem_path = Path(f"research/problems/{problem_id}")
+        # Research-style tracks: extension based on config.yaml language field
+        problem_path = Path(f"{track}/problems/{problem_id}")
         ext = get_problem_extension(problem_path)
         ref_path = problem_path / f"reference.{ext}"
         if ref_path.exists():
@@ -96,9 +97,9 @@ def validate_problem(
         if track == "algorithmic":
             print(f"  Expected: algorithmic/problems/{problem_id}/reference.cpp")
         else:
-            problem_path = Path(f"research/problems/{problem_id}")
+            problem_path = Path(f"{track}/problems/{problem_id}")
             ext = get_problem_extension(problem_path)
-            print(f"  Expected: research/problems/{problem_id}/reference.{ext}")
+            print(f"  Expected: {track}/problems/{problem_id}/reference.{ext}")
         return False
 
     print(f"  Reference: {ref_path}")
@@ -133,7 +134,7 @@ def main():
     parser.add_argument(
         "--track",
         required=True,
-        choices=["algorithmic", "research"],
+        choices=["algorithmic", "research", "2.0"],
         help="Track to validate",
     )
     parser.add_argument(

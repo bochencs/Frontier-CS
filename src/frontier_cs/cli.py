@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 CLI interface for Frontier-CS evaluation.
 
@@ -17,6 +18,7 @@ Usage:
     frontier list
     frontier list research
     frontier list algorithmic
+    frontier list 2.0
 
     # Batch evaluation
     frontier batch research
@@ -26,13 +28,24 @@ Usage:
 
 import argparse
 import contextlib
+import json
 import logging
+import os
+import shutil
+import subprocess
 import sys
+import warnings
 from pathlib import Path
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
 
-from .single_evaluator import SingleEvaluator
-from .runner import EvaluationResult
+warnings.filterwarnings(
+    "ignore",
+    category=FutureWarning,
+    message=r"(?s).*google\.generativeai.*",
+)
+
+if TYPE_CHECKING:
+    from .runner import EvaluationResult
 
 logger = logging.getLogger(__name__)
 
@@ -49,12 +62,14 @@ Commands:
   batch    Batch evaluation with incremental progress
   list     List available problems
   show     Show problem statement
+  harbor   Run generated Harbor tasks with stable Frontier-CS result output
 
 Examples:
   frontier eval research flash_attn solution.py
   frontier eval algorithmic 1 solution.cpp
   frontier batch research
   frontier list algorithmic
+  frontier harbor trial algorithmic 0 -a codex -m gpt-5.5
         """,
     )
 
@@ -87,8 +102,8 @@ Examples:
     # Positional arguments for eval
     eval_parser.add_argument(
         "track",
-        choices=["research", "algorithmic"],
-        help="Track: research or algorithmic",
+        choices=["research", "algorithmic", "2.0"],
+        help="Track: research, algorithmic, or 2.0",
     )
     eval_parser.add_argument(
         "problem_id",
@@ -224,8 +239,8 @@ Solution files use format: {problem}/{model}.py (e.g., flash_attn/gpt5.py)
     # Track as positional argument
     batch_parser.add_argument(
         "track",
-        choices=["research", "algorithmic"],
-        help="Track to evaluate: research (Python, SkyPilot) or algorithmic (C++, Docker)",
+        choices=["research", "algorithmic", "2.0"],
+        help="Track to evaluate: research, algorithmic, or 2.0",
     )
 
     # Pairs input (mutually exclusive)
@@ -371,7 +386,7 @@ Solution files use format: {problem}/{model}.py (e.g., flash_attn/gpt5.py)
     list_parser.add_argument(
         "track",
         nargs="?",
-        choices=["research", "algorithmic"],
+        choices=["research", "algorithmic", "2.0"],
         help="Track to list (default: both)",
     )
 
@@ -384,12 +399,126 @@ Solution files use format: {problem}/{model}.py (e.g., flash_attn/gpt5.py)
     )
     show_parser.add_argument(
         "track",
-        choices=["research", "algorithmic"],
-        help="Track: research or algorithmic",
+        choices=["research", "algorithmic", "2.0"],
+        help="Track: research, algorithmic, or 2.0",
     )
     show_parser.add_argument(
         "problem_id",
         help="Problem ID to show",
+    )
+
+    # ==========================================================================
+    # HARBOR subcommand
+    # ==========================================================================
+    harbor_parser = subparsers.add_parser(
+        "harbor",
+        help="Run generated Harbor tasks and print Frontier-CS rewards",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  frontier harbor trial algorithmic 0 -a codex -m gpt-5.5 --agent-timeout 180
+  frontier harbor trial 2.0 erdos_unit_distance -a codex -m gpt-5.5
+
+This is a thin wrapper over `harbor trial start`. It preserves Harbor's
+CLI/API semantics, then reads the trial artifacts so rewards are shown even
+when the agent times out after making a valid iterative submission.
+        """,
+    )
+    harbor_subparsers = harbor_parser.add_subparsers(
+        dest="harbor_command",
+        help="Harbor wrapper commands",
+    )
+    harbor_trial = harbor_subparsers.add_parser(
+        "trial",
+        help="Run one generated Harbor task",
+    )
+    harbor_trial.add_argument(
+        "track",
+        choices=["algorithmic", "2.0"],
+        help="Generated Harbor adapter track",
+    )
+    harbor_trial.add_argument(
+        "problem_id",
+        help="Problem ID (e.g. 0 or erdos_unit_distance)",
+    )
+    harbor_trial.add_argument(
+        "-a",
+        "--agent",
+        default="codex",
+        help="Harbor agent name (default: codex)",
+    )
+    harbor_trial.add_argument(
+        "-m",
+        "--model",
+        help="Agent model name passed to Harbor",
+    )
+    harbor_trial.add_argument(
+        "--dataset-dir",
+        type=Path,
+        help="Directory containing generated Harbor tasks",
+    )
+    harbor_trial.add_argument(
+        "--task-path",
+        type=Path,
+        help="Explicit generated Harbor task path",
+    )
+    harbor_trial.add_argument(
+        "--trials-dir",
+        type=Path,
+        default=None,
+        help="Harbor trials directory (default: .frontier-cs/harbor/trials)",
+    )
+    harbor_trial.add_argument(
+        "--agent-timeout",
+        type=float,
+        help="Agent execution timeout in seconds",
+    )
+    harbor_trial.add_argument(
+        "--verifier-timeout",
+        type=float,
+        help="Verifier execution timeout in seconds",
+    )
+    harbor_trial.add_argument(
+        "--force-build",
+        action="store_true",
+        help="Pass --force-build to Harbor",
+    )
+    harbor_trial.add_argument(
+        "--delete",
+        action="store_true",
+        help="Pass --delete to Harbor",
+    )
+    harbor_trial.add_argument(
+        "--uv",
+        action="store_true",
+        help="Run Harbor as `uv run --no-sync harbor` instead of `harbor`",
+    )
+    harbor_trial.add_argument(
+        "--harbor-bin",
+        default="harbor",
+        help="Harbor executable name/path (default: harbor)",
+    )
+    harbor_trial.add_argument(
+        "--env",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="Environment variable to pass to Harbor; repeatable",
+    )
+    harbor_trial.add_argument(
+        "--no-generate",
+        action="store_true",
+        help="Do not auto-generate a missing Harbor task",
+    )
+    harbor_trial.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Print Harbor output and trial artifact details",
+    )
+    harbor_trial.add_argument(
+        "--json",
+        action="store_true",
+        help="Print a JSON summary with reward, tokens, cost, and trial metadata",
     )
 
     return parser
@@ -750,6 +879,8 @@ def run_batch(args: argparse.Namespace) -> int:
 
 def run_list(args: argparse.Namespace) -> int:
     """Run list command."""
+    from .single_evaluator import SingleEvaluator
+
     evaluator = SingleEvaluator(backend="docker")
 
     if args.track == "algorithmic":
@@ -767,6 +898,11 @@ def run_list(args: argparse.Namespace) -> int:
         print(f"\nResearch Problems ({len(research_problems)} total):\n")
         for p in research_problems:
             print(f"  {p}")
+    elif args.track == "2.0":
+        problems = evaluator.list_problems("2.0")
+        print(f"\nFrontier-CS 2.0 Problems ({len(problems)} total):\n")
+        for p in problems:
+            print(f"  {p}")
     else:
         # List both tracks (no track specified)
         all_research = evaluator.list_problems("research")
@@ -781,11 +917,18 @@ def run_list(args: argparse.Namespace) -> int:
         for i in range(0, len(alg_problems), ids_per_line):
             line_ids = alg_problems[i:i+ids_per_line]
             print("  " + ", ".join(line_ids))
+
+        benchmark20_problems = evaluator.list_problems("2.0")
+        print(f"\nFrontier-CS 2.0 Problems ({len(benchmark20_problems)} total):\n")
+        for p in benchmark20_problems:
+            print(f"  {p}")
     return 0
 
 
 def run_show(args: argparse.Namespace) -> int:
     """Run show command."""
+    from .single_evaluator import SingleEvaluator
+
     evaluator = SingleEvaluator(backend="docker")
     statement = evaluator.get_problem_statement(args.track, args.problem_id)
     if statement:
@@ -796,15 +939,396 @@ def run_show(args: argparse.Namespace) -> int:
     return 0
 
 
+def _harbor_task_name(track: str, problem_id: str) -> str:
+    if track == "algorithmic":
+        return f"frontier-cs-algorithm-{problem_id}"
+    if track == "2.0":
+        slug = problem_id.replace("_", "-").replace(".", "-")
+        return f"frontier-cs-2-0-{slug}"
+    raise ValueError(f"Unsupported Harbor track: {track}")
+
+
+def _repo_root() -> Path:
+    cwd = Path.cwd()
+    if (cwd / "algorithmic").is_dir() and (cwd / "src" / "frontier_cs").is_dir():
+        return cwd
+    return Path(__file__).parents[2]
+
+
+def _default_harbor_dataset_dir(track: str) -> Path:
+    base = _repo_root() / ".frontier-cs" / "harbor" / "datasets"
+    if track == "algorithmic":
+        return base / "frontier-cs-algorithm"
+    if track == "2.0":
+        return base / "frontier-cs-2.0"
+    raise ValueError(f"Unsupported Harbor track: {track}")
+
+
+def _default_harbor_trials_dir() -> Path:
+    return _repo_root() / ".frontier-cs" / "harbor" / "trials"
+
+
+def _adapter_module_for_track(track: str) -> tuple[str, Path]:
+    root = _repo_root()
+    if track == "algorithmic":
+        return (
+            "frontier_cs_algorithm.main",
+            root / "adapters" / "frontier-cs-algorithm" / "src",
+        )
+    if track == "2.0":
+        return (
+            "frontier_cs_2_0.main",
+            root / "adapters" / "frontier-cs-2.0" / "src",
+        )
+    raise ValueError(f"Unsupported Harbor track: {track}")
+
+
+def _generate_harbor_task(track: str, problem_id: str, output_dir: Path) -> None:
+    module, adapter_src = _adapter_module_for_track(track)
+    env = os.environ.copy()
+    existing_pythonpath = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = (
+        str(adapter_src)
+        if not existing_pythonpath
+        else f"{adapter_src}{os.pathsep}{existing_pythonpath}"
+    )
+    output_dir.mkdir(parents=True, exist_ok=True)
+    command = [
+        sys.executable,
+        "-m",
+        module,
+        "--source",
+        str(_repo_root()),
+        "--output-dir",
+        str(output_dir),
+        "--task-ids",
+        str(problem_id),
+        "--overwrite",
+    ]
+    completed = subprocess.run(
+        command,
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise RuntimeError(
+            "Failed to generate Harbor task:\n"
+            + " ".join(command)
+            + "\n"
+            + (completed.stdout or "")
+        )
+
+
+def _harbor_command_prefix(args: argparse.Namespace) -> list[str]:
+    if args.uv:
+        return ["uv", "run", "--no-sync", args.harbor_bin]
+    if shutil.which(args.harbor_bin):
+        return [args.harbor_bin]
+    if shutil.which("uvx"):
+        return ["uvx", args.harbor_bin]
+    if shutil.which("uv"):
+        return ["uv", "tool", "run", args.harbor_bin]
+    return [args.harbor_bin]
+
+
+def _progress(message: str) -> None:
+    print(f"[frontier harbor] {message}", file=sys.stderr, flush=True)
+
+
+def _parse_harbor_env(values: list[str]) -> dict[str, str]:
+    env: dict[str, str] = {}
+    for item in values:
+        if "=" not in item:
+            raise ValueError(f"Invalid --env value {item!r}; expected KEY=VALUE")
+        key, value = item.split("=", 1)
+        if not key:
+            raise ValueError(f"Invalid --env value {item!r}; empty key")
+        env[key] = value
+    return env
+
+
+def _load_json_file(path: Path) -> dict | None:
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _find_harbor_trial_dir(
+    *,
+    trials_dir: Path,
+    task_name: str,
+    harbor_stdout: str,
+) -> Path | None:
+    for line in harbor_stdout.splitlines():
+        if line.startswith("Trial name:"):
+            trial_name = line.split(":", 1)[1].strip()
+            candidate = trials_dir / trial_name
+            if candidate.exists():
+                return candidate
+
+    candidates = sorted(
+        trials_dir.glob(f"{task_name}__*"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    if candidates:
+        return candidates[0]
+
+    expected_task_names = {task_name, f"frontier-cs/{task_name}"}
+    result_files = sorted(
+        trials_dir.glob("*/result.json"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    for result_file in result_files:
+        result = _load_json_file(result_file)
+        if result and result.get("task_name") in expected_task_names:
+            return result_file.parent
+    return None
+
+
+def _get_harbor_trial_rewards(trial_dir: Path) -> dict[str, float | int] | None:
+    result = _load_json_file(trial_dir / "result.json")
+    if result is None:
+        return None
+
+    verifier_result = result.get("verifier_result") or {}
+    rewards = verifier_result.get("rewards")
+    if isinstance(rewards, dict):
+        normalized = dict(rewards)
+        reward = normalized.get("reward", 0.0)
+        normalized.setdefault("score", reward)
+        normalized.setdefault("score_unbounded", normalized["score"])
+        return normalized
+    return {"reward": 0.0, "score": 0.0, "score_unbounded": 0.0}
+
+
+def _count_successful_submissions(trial_dir: Path) -> tuple[int, float | None]:
+    submissions = trial_dir / "verifier" / "submissions.jsonl"
+    if not submissions.exists():
+        return 0, None
+
+    successful = 0
+    best = None
+    for line in submissions.read_text(encoding="utf-8", errors="replace").splitlines():
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+            score = float(record.get("score", 0.0))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+        if record.get("status") == "done":
+            successful += 1
+            best = score if best is None else max(best, score)
+    return successful, best
+
+
+def _harbor_trial_summary_payload(trial_dir: Path) -> dict:
+    result = _load_json_file(trial_dir / "result.json") or {}
+    rewards = _get_harbor_trial_rewards(trial_dir) or {}
+    exception = result.get("exception_info") or {}
+    agent_result = result.get("agent_result") or {}
+    agent_info = result.get("agent_info") or {}
+    model_info = agent_info.get("model_info") or {}
+    sidecar = (
+        _load_json_file(trial_dir / "verifier" / "judge_result.json")
+        or _load_json_file(trial_dir / "verifier" / "evaluation_result.json")
+        or {}
+    )
+    successful_submissions, best_submission_reward = _count_successful_submissions(
+        trial_dir
+    )
+
+    payload = {
+        "reward": rewards.get("reward"),
+        "score": rewards.get("score"),
+        "score_unbounded": rewards.get("score_unbounded"),
+        "trial_status": exception.get("exception_type") if exception else "completed",
+        "error_message": exception.get("exception_message") if exception else None,
+        "trial_name": result.get("trial_name"),
+        "task_name": result.get("task_name"),
+        "trial_dir": str(trial_dir),
+        "agent": agent_info.get("name"),
+        "agent_version": agent_info.get("version"),
+        "model": model_info.get("name"),
+        "model_provider": model_info.get("provider"),
+        "n_input_tokens": agent_result.get("n_input_tokens"),
+        "n_cache_tokens": agent_result.get("n_cache_tokens"),
+        "n_output_tokens": agent_result.get("n_output_tokens"),
+        "cost_usd": agent_result.get("cost_usd"),
+        "successful_submissions": successful_submissions,
+        "best_iterative_reward": best_submission_reward,
+        "used_best_submission": bool(sidecar.get("used_best_submission")),
+        "best_submission_reward": sidecar.get("best_submission_reward"),
+        "started_at": result.get("started_at"),
+        "finished_at": result.get("finished_at"),
+    }
+    return {key: value for key, value in payload.items() if value is not None}
+
+
+def _print_harbor_trial_summary(trial_dir: Path) -> None:
+    payload = _harbor_trial_summary_payload(trial_dir)
+    rewards = _get_harbor_trial_rewards(trial_dir)
+
+    print("\nFrontier-CS Harbor Summary")
+    print("=" * 40)
+    print(f"Trial directory: {trial_dir}")
+    print(f"Trial status: {payload.get('trial_status', 'unknown')}")
+    if payload.get("error_message"):
+        print(f"Message: {payload['error_message']}")
+
+    if rewards:
+        print(f"Rewards: {rewards}")
+    else:
+        print("Rewards: unavailable")
+
+    if payload.get("used_best_submission"):
+        print(
+            "Best submission fallback: "
+            f"{payload.get('best_submission_reward', payload.get('reward'))}"
+        )
+    if payload.get("cost_usd") is not None:
+        print(f"Cost USD: {payload['cost_usd']}")
+    token_fields = [
+        payload.get("n_input_tokens"),
+        payload.get("n_cache_tokens"),
+        payload.get("n_output_tokens"),
+    ]
+    if any(value is not None for value in token_fields):
+        print(
+            "Tokens: "
+            f"input={payload.get('n_input_tokens')}, "
+            f"cache={payload.get('n_cache_tokens')}, "
+            f"output={payload.get('n_output_tokens')}"
+        )
+
+    reward_json = trial_dir / "verifier" / "reward.json"
+    if reward_json.exists():
+        print(f"Reward artifact: {reward_json}")
+
+    if payload.get("successful_submissions") is not None:
+        print(f"Iterative submissions: {payload['successful_submissions']} successful")
+        if payload.get("best_iterative_reward") is not None:
+            print(f"Best iterative reward: {payload['best_iterative_reward']}")
+
+
+def run_harbor(args: argparse.Namespace) -> int:
+    """Run Harbor wrapper commands."""
+    if args.harbor_command != "trial":
+        print("Error: Missing Harbor command. Try `frontier harbor trial --help`.", file=sys.stderr)
+        return 1
+
+    task_name = _harbor_task_name(args.track, args.problem_id)
+    task_path = args.task_path
+    dataset_dir = args.dataset_dir or _default_harbor_dataset_dir(args.track)
+    if task_path is None:
+        task_path = dataset_dir / task_name
+
+    if not task_path.exists():
+        if task_path == dataset_dir / task_name and not args.no_generate:
+            _progress(f"Generating task {task_name}")
+            try:
+                _generate_harbor_task(args.track, args.problem_id, dataset_dir)
+            except RuntimeError as exc:
+                print(f"Error: {exc}", file=sys.stderr)
+                return 1
+        if task_path.exists():
+            pass
+        else:
+            print(
+                f"Error: Harbor task path not found: {task_path}\n"
+                "Generate Harbor tasks first, or pass --task-path / --dataset-dir.",
+                file=sys.stderr,
+            )
+            return 1
+
+    trials_dir = args.trials_dir or _default_harbor_trials_dir()
+    trials_dir.mkdir(parents=True, exist_ok=True)
+
+    command = _harbor_command_prefix(args)
+    command.extend(["trial", "start", "-p", str(task_path), "-a", args.agent])
+    if args.model:
+        command.extend(["-m", args.model])
+    if args.agent_timeout is not None:
+        command.extend(["--agent-timeout", str(args.agent_timeout)])
+    if args.verifier_timeout is not None:
+        command.extend(["--verifier-timeout", str(args.verifier_timeout)])
+    command.extend(["--trials-dir", str(trials_dir)])
+    if args.force_build:
+        command.append("--force-build")
+    if args.delete:
+        command.append("--delete")
+
+    env = os.environ.copy()
+    try:
+        env.update(_parse_harbor_env(args.env))
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    if args.track == "algorithmic" and "FRONTIER_CS_ALGORITHMIC_PATH" not in env:
+        env["FRONTIER_CS_ALGORITHMIC_PATH"] = str(_repo_root() / "algorithmic")
+
+    _progress(f"Starting Harbor trial {task_name}")
+    if args.verbose:
+        print("Running Harbor trial...")
+        print(" ".join(command))
+    completed = subprocess.run(
+        command,
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
+    )
+    if args.verbose and completed.stdout:
+        print(completed.stdout, end="")
+
+    _progress("Reading trial artifacts")
+    trial_dir = _find_harbor_trial_dir(
+        trials_dir=trials_dir,
+        task_name=task_name,
+        harbor_stdout=completed.stdout or "",
+    )
+    if trial_dir is None:
+        print("Error: could not locate Harbor trial directory.", file=sys.stderr)
+        return completed.returncode or 1
+
+    rewards = _get_harbor_trial_rewards(trial_dir)
+    if rewards and "reward" in rewards:
+        if args.json:
+            print(json.dumps(_harbor_trial_summary_payload(trial_dir), indent=2))
+        elif args.verbose:
+            _print_harbor_trial_summary(trial_dir)
+        else:
+            print(rewards["reward"])
+        return 0
+
+    if args.verbose:
+        _print_harbor_trial_summary(trial_dir)
+    else:
+        print(f"Error: no reward found in {trial_dir}", file=sys.stderr)
+
+    return completed.returncode or 1
+
+
 def run_eval(args: argparse.Namespace) -> int:
     """Run eval command."""
+    from .single_evaluator import SingleEvaluator
+
     track = args.track
 
     # Determine backend: explicit --backend or track default
     if args.backend:
         backend = args.backend
     else:
-        # Default: skypilot for research, docker for algorithmic
+        # Default: skypilot for research, docker for algorithmic/2.0
         backend = "skypilot" if track == "research" else "docker"
     idle_timeout = None if args.keep_cluster else getattr(args, 'idle_timeout', 10)
     timeout = getattr(args, 'timeout', None)
@@ -905,6 +1429,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         return run_list(args)
     elif args.command == "show":
         return run_show(args)
+    elif args.command == "harbor":
+        return run_harbor(args)
     else:
         # No command specified, show help
         parser.print_help()

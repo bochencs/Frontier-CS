@@ -14,10 +14,9 @@ from .runner import AlgorithmicLocalRunner, EvaluationResult, ResearchDockerRunn
 from .runner.base import Runner
 from .runner.cluster_cleanup import ActiveClusterRegistry
 from .runner.research_skypilot import ResearchSkyPilotRunner
-from .runner.algorithmic_skypilot import AlgorithmicSkyPilotRunner
 
 
-TrackType = Literal["algorithmic", "research"]
+TrackType = Literal["algorithmic", "research", "2.0"]
 BackendType = Literal["docker", "skypilot"]
 
 
@@ -79,7 +78,9 @@ class SingleEvaluator:
         self._algorithmic_runner: Optional[AlgorithmicLocalRunner] = None
         self._algorithmic_skypilot_runner: Optional[Runner] = None
         self._docker_runner: Optional[ResearchDockerRunner] = None
+        self._benchmark20_docker_runner: Optional[ResearchDockerRunner] = None
         self._skypilot_runner: Optional[Runner] = None
+        self._benchmark20_skypilot_runner: Optional[Runner] = None
 
         if self._register_cleanup:
             self._register_cleanup_hooks()
@@ -95,10 +96,11 @@ class SingleEvaluator:
                     ResearchSkyPilotRunner.down_clusters(names)
             except Exception:
                 pass
-            try:
-                ResearchSkyPilotRunner.down_cluster(AlgorithmicSkyPilotRunner.CLUSTER_NAME)
-            except Exception:
-                pass
+            if self._algorithmic_skypilot_runner is not None:
+                try:
+                    self._algorithmic_skypilot_runner.stop_cluster()
+                except Exception:
+                    pass
 
         def signal_handler(signum, frame):
             print("\n\nInterrupted! Cleaning up...")
@@ -156,6 +158,35 @@ class SingleEvaluator:
             )
         return self._skypilot_runner
 
+    @property
+    def benchmark20_docker_runner(self) -> ResearchDockerRunner:
+        """Get or create the Docker runner for Frontier-CS 2.0 problems."""
+        if self._benchmark20_docker_runner is None:
+            base_dir = self.base_dir or Path(__file__).parents[2]
+            self._benchmark20_docker_runner = ResearchDockerRunner(
+                base_dir=self.base_dir,
+                problems_dir=base_dir / "2.0" / "problems",
+                datasets_dir=base_dir / "2.0" / "datasets",
+                timeout=self.timeout,
+            )
+        return self._benchmark20_docker_runner
+
+    @property
+    def benchmark20_skypilot_runner(self) -> Runner:
+        """Get or create the SkyPilot runner for Frontier-CS 2.0 problems."""
+        if self._benchmark20_skypilot_runner is None:
+            from .runner.research_skypilot import ResearchSkyPilotRunner
+            base_dir = self.base_dir or Path(__file__).parents[2]
+            self._benchmark20_skypilot_runner = ResearchSkyPilotRunner(
+                base_dir=self.base_dir,
+                problems_dir=base_dir / "2.0" / "problems",
+                cloud=self.cloud,
+                region=self.region,
+                keep_cluster=self.keep_cluster,
+                idle_timeout=self.idle_timeout,
+            )
+        return self._benchmark20_skypilot_runner
+
     def _get_runner(self, track: TrackType, backend: Optional[BackendType] = None) -> Runner:
         """Get the appropriate runner for a track and backend."""
         # Priority: explicit backend > init backend > track default
@@ -164,13 +195,18 @@ class SingleEvaluator:
         elif self.default_backend:
             effective_backend = self.default_backend
         else:
-            # Auto-detect: research -> skypilot, algorithmic -> docker
+            # Auto-detect: research -> skypilot, algorithmic/2.0 -> docker
             effective_backend = "skypilot" if track == "research" else "docker"
 
         if track == "algorithmic":
             if effective_backend == "skypilot":
                 return self.algorithmic_skypilot_runner
             return self.algorithmic_runner
+
+        if track == "2.0":
+            if effective_backend == "skypilot":
+                return self.benchmark20_skypilot_runner
+            return self.benchmark20_docker_runner
 
         if effective_backend == "skypilot":
             return self.skypilot_runner
@@ -188,9 +224,9 @@ class SingleEvaluator:
         Evaluate a solution for a single problem.
 
         Args:
-            track: Problem track ("algorithmic" or "research")
-            problem_id: Problem identifier (int for algorithmic, str for research)
-            code: Solution code (C++ for algorithmic, Python for research)
+            track: Problem track ("algorithmic", "research", or "2.0")
+            problem_id: Problem identifier (int for algorithmic, str for research/2.0)
+            code: Solution code (C++ for algorithmic, Python for research/2.0)
             backend: Backend to use ("docker" or "skypilot"), defaults to init value
 
         Returns:
@@ -253,8 +289,18 @@ class SingleEvaluator:
                     return (0, int(name))
                 except ValueError:
                     return (1, name)
-            
+
             return sorted(problems, key=sort_key)
+
+        if track == "2.0":
+            problems_dir = self.benchmark20_docker_runner.problems_dir
+            if not problems_dir.exists():
+                return []
+            problems = []
+            for evaluator_file in problems_dir.rglob("evaluator.py"):
+                problem_path = evaluator_file.parent.relative_to(problems_dir)
+                problems.append(str(problem_path))
+            return sorted(problems)
 
         # Research problems - count by evaluator.py files (matches update_problem_count.py logic)
         research_problems_dir = self.docker_runner.research_dir / "problems"
@@ -311,7 +357,29 @@ class SingleEvaluator:
             Problem statement text, or None if not found
         """
         if track == "algorithmic":
-            return self.algorithmic_runner.get_problem_statement(str(problem_id))
+            statement = self.algorithmic_runner.get_problem_statement(str(problem_id))
+            if statement:
+                return statement
+            problem_path = (
+                self.algorithmic_runner.base_dir
+                / "algorithmic"
+                / "problems"
+                / str(problem_id)
+            )
+            local_statement = problem_path / "statement.txt"
+            if local_statement.exists():
+                return local_statement.read_text(encoding="utf-8")
+            return None
+
+        if track == "2.0":
+            problem_path = self.benchmark20_docker_runner.get_problem_path(str(problem_id))
+            readme = problem_path / "readme"
+            if readme.exists():
+                return readme.read_text(encoding="utf-8")
+            statement = problem_path / "statement.txt"
+            if statement.exists():
+                return statement.read_text(encoding="utf-8")
+            return None
 
         # Research problem - read readme
         problem_path = self.docker_runner.get_problem_path(str(problem_id))

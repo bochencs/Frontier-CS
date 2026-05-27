@@ -1,0 +1,17 @@
+[
+  {
+    "adapter_name": "frontier-cs-2.0",
+    "agent": null,
+    "model": null,
+    "date": null,
+    "adapted_benchmark_size": 1,
+    "parity_benchmark_size": 0,
+    "number_of_runs": 0,
+    "notes": "Parity has not been run yet because this adapter introduces a new Frontier-CS 2.0 track. Add per-task parity results once native Frontier-CS and Harbor runs are available.",
+    "original_parity_repo": "https://github.com/FrontierCS/Frontier-CS",
+    "adapter_pr": [],
+    "dataset_pr": [],
+    "parity_pr": [],
+    "metrics": []
+  }
+]

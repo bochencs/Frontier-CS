@@ -41,7 +41,15 @@ def count_algorithmic_problems(algorithmic_dir: Path) -> int:
     return count
 
 
-def update_readme_badge(readme_path: Path, research_count: int, algo_count: int):
+def count_benchmark20_problems(benchmark20_dir: Path) -> int:
+    """Count Frontier-CS 2.0 problems by counting evaluator.py files."""
+    problems_dir = benchmark20_dir / 'problems'
+    if not problems_dir.exists():
+        return 0
+    return sum(1 for _ in problems_dir.rglob('evaluator.py'))
+
+
+def update_readme_badge(readme_path: Path, research_count: int, algo_count: int, benchmark20_count: int):
     """Update the README with current problem counts using badges."""
     
     if not readme_path.exists():
@@ -50,9 +58,10 @@ def update_readme_badge(readme_path: Path, research_count: int, algo_count: int)
     
     content = readme_path.read_text()
     
-    # Create the research and algorithmic badges (HTML img tag format)
+    # Create the problem-count badges (HTML img tag format)
     research_badge = f'<img src="https://img.shields.io/badge/Research_Problems-{research_count}-blue" alt="Research Problems">'
     algo_badge = f'<img src="https://img.shields.io/badge/Algorithmic_Problems-{algo_count}-green" alt="Algorithmic Problems">'
+    benchmark20_badge = f'<img src="https://img.shields.io/badge/2.0_Problems-{benchmark20_count}-purple" alt="2.0 Problems">'
     
     # Replace existing badges using regex
     import re
@@ -70,10 +79,19 @@ def update_readme_badge(readme_path: Path, research_count: int, algo_count: int)
         algo_badge,
         content
     )
+
+    if 'alt="2.0 Problems"' in content:
+        content = re.sub(
+            r'<img src="https://img\.shields\.io/badge/2\.0_Problems-\d+-purple" alt="2\.0 Problems">',
+            benchmark20_badge,
+            content
+        )
+    else:
+        content = content.replace(algo_badge, f"{algo_badge}\n  {benchmark20_badge}")
     
     # Write back
     readme_path.write_text(content)
-    print(f"✅ Updated README with counts: Research={research_count}, Algorithmic={algo_count}")
+    print(f"✅ Updated README with counts: Research={research_count}, Algorithmic={algo_count}, 2.0={benchmark20_count}")
 
 
 def main():
@@ -84,18 +102,21 @@ def main():
     # Count problems
     research_dir = repo_root / 'research'
     algorithmic_dir = repo_root / 'algorithmic'
+    benchmark20_dir = repo_root / '2.0'
     readme_path = repo_root / 'README.md'
     
     research_count = count_research_problems(research_dir)
     algo_count = count_algorithmic_problems(algorithmic_dir)
+    benchmark20_count = count_benchmark20_problems(benchmark20_dir)
     
     print(f"📊 Problem Statistics:")
     print(f"   Research Problems: {research_count}")
     print(f"   Algorithmic Problems: {algo_count}")
-    print(f"   Total: {research_count + algo_count}")
+    print(f"   2.0 Problems: {benchmark20_count}")
+    print(f"   Total: {research_count + algo_count + benchmark20_count}")
     
     # Update README
-    update_readme_badge(readme_path, research_count, algo_count)
+    update_readme_badge(readme_path, research_count, algo_count, benchmark20_count)
 
 
 if __name__ == '__main__':

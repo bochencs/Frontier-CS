@@ -84,7 +84,7 @@ class BatchEvaluator:
             solutions_dir: Solutions directory (overrides base_dir for solution lookup if set)
             problems_dir: Problems directory (overrides base_dir for problem lookup if set)
             backend: Evaluation backend ("docker" or "skypilot")
-            track: Evaluation track ("research" or "algorithmic")
+            track: Evaluation track ("research", "algorithmic", or "2.0")
             workers: Number of parallel workers/concurrent evaluations (default: 1)
             clusters: Number of SkyPilot clusters (research + skypilot only, default: same as workers)
             timeout: Default timeout for evaluations (seconds)
@@ -145,13 +145,15 @@ class BatchEvaluator:
             return self.problems_dir
         if self.track == "algorithmic":
             return self.base_dir / "algorithmic" / "problems"
+        if self.track == "2.0":
+            return self.base_dir / "2.0" / "problems"
         return self.base_dir / "research" / "problems"
 
     def _get_problem_extension(self, problem: str) -> str:
         """Get file extension for a problem based on its config.yaml.
 
         For algorithmic track, always returns "cpp".
-        For research track, reads config.yaml to determine language.
+        For research and 2.0 tracks, reads config.yaml to determine language.
         """
         if self.track == "algorithmic":
             return "cpp"
@@ -191,11 +193,13 @@ class BatchEvaluator:
                     problems_dir=self.problems_dir,
                 )
         else:
-            # research track
+            # research-style tracks
             if self.backend == "docker":
+                datasets_dir = self.base_dir / "2.0" / "datasets" if self.track == "2.0" else None
                 return ResearchDockerRunner(
                     base_dir=self.base_dir,
                     problems_dir=self.problems_dir,
+                    datasets_dir=datasets_dir,
                     timeout=self.timeout,
                 )
             else:
@@ -230,6 +234,8 @@ class BatchEvaluator:
                     probs_dir = self.problems_dir
                 elif self.track == "algorithmic":
                     probs_dir = self.base_dir / "algorithmic" / "problems"
+                elif self.track == "2.0":
+                    probs_dir = self.base_dir / "2.0" / "problems"
                 else:
                     probs_dir = self.base_dir / "research" / "problems"
                 problem_path = probs_dir / pair.problem
@@ -593,6 +599,8 @@ class BatchEvaluator:
             return self.solutions_dir
         elif self.track == "algorithmic":
             return self.base_dir / "algorithmic" / "solutions"
+        elif self.track == "2.0":
+            return self.base_dir / "2.0" / "solutions"
         else:
             return self.base_dir / "research" / "solutions"
 
@@ -651,6 +659,8 @@ class BatchEvaluator:
             probs_dir = self.problems_dir
         elif self.track == "algorithmic":
             probs_dir = self.base_dir / "algorithmic" / "problems"
+        elif self.track == "2.0":
+            probs_dir = self.base_dir / "2.0" / "problems"
         else:
             probs_dir = self.base_dir / "research" / "problems"
 

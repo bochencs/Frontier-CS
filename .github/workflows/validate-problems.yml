@@ -5,6 +5,7 @@ on:
     paths:
       - 'algorithmic/problems/**'
       - 'research/problems/**'
+      - '2.0/problems/**'
 
 jobs:
   detect-changes:
@@ -12,6 +13,7 @@ jobs:
     outputs:
       algorithmic: ${{ steps.detect.outputs.algorithmic }}
       research: ${{ steps.detect.outputs.research }}
+      benchmark20: ${{ steps.detect.outputs.benchmark20 }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -34,6 +36,11 @@ jobs:
           RES=$(python scripts/detect_changed_problems.py --track research --base-ref origin/${{ github.base_ref }} -v 2>&1 | tail -1)
           echo "research=$RES" >> $GITHUB_OUTPUT
           echo "Research problems: $RES"
+
+          # Detect changed Frontier-CS 2.0 problems
+          B20=$(python scripts/detect_changed_problems.py --track 2.0 --base-ref origin/${{ github.base_ref }} -v 2>&1 | tail -1)
+          echo "benchmark20=$B20" >> $GITHUB_OUTPUT
+          echo "Frontier-CS 2.0 problems: $B20"
 
   validate-algorithmic:
     needs: detect-changes
@@ -127,4 +134,30 @@ jobs:
             --track research \
             --timeout 1200 \
             --problems ${{ needs.detect-changes.outputs.research }} \
+            --verbose
+
+  validate-benchmark20:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.benchmark20 != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Validate problems
+        run: |
+          echo "Validating Frontier-CS 2.0 problems: ${{ needs.detect-changes.outputs.benchmark20 }}"
+          uv run python scripts/validate_problems.py \
+            --track 2.0 \
+            --problems ${{ needs.detect-changes.outputs.benchmark20 }} \
             --verbose

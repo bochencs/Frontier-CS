@@ -1,0 +1,32 @@
+[
+  {
+    "adapter_name": "frontier-cs-2.0",
+    "adapter_builders": [
+      "Frontier-CS Team (frontier-cs@berkeley.edu)"
+    ],
+    "original_benchmark": [
+      {
+        "split": "2.0",
+        "size": 1,
+        "harness": "agent",
+        "supported_agents": null,
+        "adaptable": true,
+        "notes": "Frontier-CS 2.0 currently contains the Erdos unit distance open-ended optimization problem. The source evaluator reports a bounded score in [0, 100] plus an unbounded score."
+      }
+    ],
+    "harbor_adapter": [
+      {
+        "split": "2.0",
+        "adapted_benchmark_size": 1,
+        "parity_benchmark_size": 0,
+        "parity_sampling_rate": 0.0,
+        "registry_benchmark_size": 1,
+        "added_agents": [],
+        "parity_matching_agents": [],
+        "parity_unmatching_agents": null,
+        "parity_costs": "Not run yet",
+        "notes": "Initial adapter for the new Frontier-CS 2.0 track, modeled after the official frontier-cs-algorithm Harbor adapter. Parity experiments should be added after the 2.0 track has model runs to compare against."
+      }
+    ]
+  }
+]

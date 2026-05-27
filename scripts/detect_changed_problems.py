@@ -5,6 +5,7 @@ Detect changed problems from git diff, handling nested variants.
 Usage:
     python scripts/detect_changed_problems.py --track research
     python scripts/detect_changed_problems.py --track algorithmic
+    python scripts/detect_changed_problems.py --track 2.0
     python scripts/detect_changed_problems.py --track research --base-ref origin/main
 """
 
@@ -35,7 +36,7 @@ def detect_changed_problems(track: str, base_ref: str = "origin/main") -> list[s
     """
     Detect changed problems from git diff.
 
-    For research track, handles nested variants:
+    For research-style tracks, handles nested variants:
     - research/problems/llm_sql/large/evaluator.py -> llm_sql/large
     - research/problems/flash_attn/evaluator.py -> flash_attn
 
@@ -43,7 +44,7 @@ def detect_changed_problems(track: str, base_ref: str = "origin/main") -> list[s
     - algorithmic/problems/101/config.yaml -> 101
 
     A valid problem directory must contain:
-    - Research: evaluator.py
+    - Research/2.0: evaluator.py
     - Algorithmic: config.yaml
     """
     changed_files = get_changed_files(base_ref)
@@ -70,7 +71,7 @@ def detect_changed_problems(track: str, base_ref: str = "origin/main") -> list[s
             if track == "algorithmic":
                 is_problem = (problem_dir / "config.yaml").exists()
             else:
-                # Research problems must have evaluator.py
+                # Research-style problems must have evaluator.py
                 is_problem = (problem_dir / "evaluator.py").exists()
 
             if is_problem:
@@ -87,7 +88,7 @@ def main():
     parser.add_argument(
         "--track",
         required=True,
-        choices=["algorithmic", "research"],
+        choices=["algorithmic", "research", "2.0"],
         help="Track to detect changes for",
     )
     parser.add_argument(

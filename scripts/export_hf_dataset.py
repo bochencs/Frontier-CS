@@ -12,6 +12,45 @@ def export_dataset(output_dir: str = "hf_export"):
 
     problems = []
 
+    def append_research_style_problems(track_dir: Path, category: str) -> None:
+        if not track_dir.exists():
+            return
+        for category_dir in sorted(track_dir.iterdir()):
+            if not category_dir.is_dir():
+                continue
+
+            readme_file = category_dir / "readme"
+            config_file = category_dir / "config.yaml"
+
+            if readme_file.exists() or config_file.exists():
+                statement = readme_file.read_text(encoding="utf-8") if readme_file.exists() else ""
+                config = config_file.read_text(encoding="utf-8") if config_file.exists() else ""
+
+                problems.append({
+                    "problem_id": category_dir.name,
+                    "category": category,
+                    "statement": statement,
+                    "config": config,
+                })
+            else:
+                for subproblem_dir in sorted(category_dir.iterdir()):
+                    if not subproblem_dir.is_dir():
+                        continue
+
+                    readme_file = subproblem_dir / "readme"
+                    config_file = subproblem_dir / "config.yaml"
+
+                    statement = readme_file.read_text(encoding="utf-8") if readme_file.exists() else ""
+                    config = config_file.read_text(encoding="utf-8") if config_file.exists() else ""
+
+                    if statement or config:
+                        problems.append({
+                            "problem_id": f"{category_dir.name}/{subproblem_dir.name}",
+                            "category": category,
+                            "statement": statement,
+                            "config": config,
+                        })
+
     # Algorithmic problems
     algo_path = base_path / "algorithmic" / "problems"
     for problem_dir in sorted(algo_path.iterdir()):
@@ -36,43 +75,9 @@ def export_dataset(output_dir: str = "hf_export"):
             "config": config,
         })
 
-    # Research problems
-    research_path = base_path / "research" / "problems"
-    for category_dir in sorted(research_path.iterdir()):
-        if not category_dir.is_dir():
-            continue
-
-        readme_file = category_dir / "readme"
-        config_file = category_dir / "config.yaml"
-
-        if readme_file.exists() or config_file.exists():
-            statement = readme_file.read_text(encoding="utf-8") if readme_file.exists() else ""
-            config = config_file.read_text(encoding="utf-8") if config_file.exists() else ""
-
-            problems.append({
-                "problem_id": category_dir.name,
-                "category": "research",
-                "statement": statement,
-                "config": config,
-            })
-        else:
-            for subproblem_dir in sorted(category_dir.iterdir()):
-                if not subproblem_dir.is_dir():
-                    continue
-
-                readme_file = subproblem_dir / "readme"
-                config_file = subproblem_dir / "config.yaml"
-
-                statement = readme_file.read_text(encoding="utf-8") if readme_file.exists() else ""
-                config = config_file.read_text(encoding="utf-8") if config_file.exists() else ""
-
-                if statement or config:
-                    problems.append({
-                        "problem_id": f"{category_dir.name}/{subproblem_dir.name}",
-                        "category": "research",
-                        "statement": statement,
-                        "config": config,
-                    })
+    # Research-style problems
+    append_research_style_problems(base_path / "research" / "problems", "research")
+    append_research_style_problems(base_path / "2.0" / "problems", "2.0")
 
     # Write JSONL
     output_file = output_path / "problems.jsonl"
@@ -96,6 +101,7 @@ def export_dataset(output_dir: str = "hf_export"):
     # Create dataset card (README.md)
     algo_count = sum(1 for p in problems if p["category"] == "algorithmic")
     research_count = sum(1 for p in problems if p["category"] == "research")
+    benchmark20_count = sum(1 for p in problems if p["category"] == "2.0")
 
     readme_content = f"""---
 license: apache-2.0
@@ -108,6 +114,7 @@ tags:
   - algorithms
   - competitive-programming
   - research
+  - frontier-cs-2.0
 size_categories:
   - n<1K
 ---
@@ -118,15 +125,16 @@ A benchmark dataset for evaluating AI systems on challenging computer science pr
 
 ## Dataset Description
 
-This dataset contains {len(problems)} problems across two categories:
+This dataset contains {len(problems)} problems across three categories:
 - **Algorithmic**: {algo_count} competitive programming problems with automated judging
 - **Research**: {research_count} open-ended research problems
+- **2.0**: {benchmark20_count} next-generation open-ended optimization problems
 
 ## Dataset Structure
 
 Each problem has the following fields:
 - `problem_id`: Unique identifier for the problem
-- `category`: Either "algorithmic" or "research"
+- `category`: One of "algorithmic", "research", or "2.0"
 - `statement`: The problem statement text
 - `config`: YAML configuration for evaluation
 

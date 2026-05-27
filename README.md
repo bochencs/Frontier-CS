@@ -19,12 +19,15 @@
   </a>
   <img src="https://img.shields.io/badge/Research_Problems-68-blue" alt="Research Problems">
   <img src="https://img.shields.io/badge/Algorithmic_Problems-188-green" alt="Algorithmic Problems">
+  <img src="https://img.shields.io/badge/2.0_Problems-1-purple" alt="2.0 Problems">
 </p>
-
 
 ## News
 
-- **May 2026:** The formerly private algorithmic test cases are now public, making full local, batch, and agent-based evaluation possible without internal repository access.
+- **May 27, 2026:** Frontier-CS 2.0 is underway: agent-horizon friendly, verifiable, and harborized from the start.
+- **May 26, 2026:** The formerly private algorithmic test cases are now public, making full local, batch, and agent-based evaluation possible without internal repository access.
+- **May 12, 2026:** We now provide a Harbor adapter for the Frontier-CS Algorithmic track. See our [Harbor blog post](https://frontier-cs.org/blog/harbor/).
+- **Apr 30, 2026:** Frontier-CS was accepted to ICML 2026.
 
 ## What is Frontier-CS?
 
@@ -44,40 +47,6 @@ Current benchmarks are becoming too easy. Models score 90%+ on many existing cod
 | Problems   | Textbook-style, known solutions            | _Open-ended_ research & optimization challenges         |
 | Evaluation | Binary pass-or-fail                        | _Verifiable_ continuous scoring, always room to improve |
 | Scope      | Usually one domain                         | _Diverse_: systems, ML, algorithms, security, and more  |
-
-## 🏆 Leaderboard Snapshot (01/29/2026)
-
-Score@k = best-of-k runs; Avg@k = average over k runs; Elo uses Bradley–Terry from single-attempt performance (difficulty-normalized).
-
-
-<a id="algorithmic-track"></a>
-### Algorithmic Track (172 problems)
-
-| Rank | Model | Score@1 | Avg@5 | Score@5 | Elo |
-|:---:|---|---:|---:|---:|---:|
-| 🥇 | Gemini 3.0 Pro | **33.12** | **34.58** | **56.09** | **1265** |
-| 🥈 | GPT 5.2 Thinking | 32.40 | 33.11 | 47.19 | 1242 |
-| 🥉 | GPT 5 Thinking | 23.10 | 22.58 | 39.73 | 1196 |
-| 4 | DeepSeek 3.2 | 24.83 | 23.89 | 41.44 | 1193 |
-| 5 | Grok 4 | 24.04 | 22.98 | 36.81 | 1174 |
-| 6 | Gemini 2.5 Pro | 20.34 | 19.32 | 36.65 | 1167 |
-| 7 | GPT 5.1 Thinking | 20.64 | 21.49 | 34.76 | 1164 |
-
-**Human reference: <b>86.99</b> (Score@1).**
-
-<a id="research-track"></a>
-### Research Track (68 problems)
-
-| Rank | Model | Score@1 | Avg@5 | Score@5 | Elo |
-|:---:|---|---:|---:|---:|---:|
-| 🥇 | Gemini 3.0 Pro | **46.55** | **43.14** | **59.22** | **1283** |
-| 🥈 | GPT 5 Thinking | 30.91 | 34.94 | 55.25 | 1218 |
-| 🥉 | GPT 5.1 Thinking | 32.12 | 33.70 | 56.79 | 1214 |
-| 4 | GPT 5.2 Thinking | 30.29 | 34.09 | 58.90 | 1210 |
-| 5 | Gemini 2.5 Pro | 21.66 | 25.74 | 51.57 | 1180 |
-| 6 | Grok 4 | 26.75 | 24.01 | 48.15 | 1149 |
-| 7 | DeepSeek 3.2 | 21.51 | 21.76 | 44.41 | 1146 |
-
 
 ## Getting Started
 
@@ -114,6 +83,73 @@ frontier eval algorithmic 0 <your_solution.cpp>
 <p align="center">
   <img src="assets/teaser.png" alt="Example polyomino packing solution visualized with scripts/viz.py" width="800"/>
 </p>
+
+### Harbor Agent Evaluation
+
+Frontier-CS tasks can also be evaluated through Harbor. The Harbor adapters in
+`adapters/` generate Harbor-native task datasets, so users can run their own
+agents with Harbor's standard CLI/API instead of calling Frontier-CS directly.
+Agents may call the task-local `submit.sh` during a trial for iterative
+feedback; the final verifier records the higher of the final solution score
+and the best successful iterative submission. If an agent times out after
+making submissions, the reward is still available in the trial's
+`result.json` and `verifier/reward.json` artifacts.
+
+```bash
+# Configure the agent credentials first
+export OPENAI_API_KEY=<your-openai-api-key>
+
+# Run Algorithmic Problem 0 through Frontier-CS's Harbor wrapper
+uv run frontier harbor trial algorithmic 0 -a codex -m gpt-5.5
+
+# Add --json for reward, tokens, cost, timeout status, and submission metadata
+uv run frontier harbor trial algorithmic 0 -a codex -m gpt-5.5 --json
+```
+
+Example JSON output:
+
+```json
+{
+  "reward": 0.7161613642285716,
+  "score": 71.61613642285715,
+  "score_unbounded": 71.61613642285715,
+  "trial_status": "AgentTimeoutError",
+  "error_message": "Agent execution timed out after 180.0 seconds",
+  "trial_name": "frontier-cs-algorithm-0__example",
+  "task_name": "frontier-cs/frontier-cs-algorithm-0",
+  "trial_dir": ".frontier-cs/harbor/trials/frontier-cs-algorithm-0__example",
+  "agent": "codex",
+  "agent_version": "0.134.0",
+  "model": "gpt-5.5",
+  "n_input_tokens": 359718,
+  "n_cache_tokens": 302080,
+  "n_output_tokens": 7887,
+  "cost_usd": 0.67584,
+  "successful_submissions": 2
+}
+```
+
+The wrapper stores generated Harbor tasks and trial outputs under
+`.frontier-cs/harbor/` by default and auto-generates a missing task from the
+local repository. It uses an existing `harbor` CLI on `PATH` when available;
+otherwise it falls back to `uvx harbor`, keeping Harbor's Python dependencies
+isolated from Frontier-CS's own `uv sync` environment.
+
+### Frontier-CS 2.0 Problems
+
+Frontier-CS 2.0 is agent-first: current 2.0 problems are meant to be run
+through Harbor-compatible agents rather than direct one-shot solution files.
+Problem IDs are their problem directory names, such as `erdos_unit_distance`.
+
+```bash
+# List 2.0 problems
+frontier list 2.0
+
+# Run a 2.0 task with an agent through the Harbor wrapper
+uv run frontier harbor trial 2.0 erdos_unit_distance -a codex -m gpt-5.5 --json
+```
+
+See [2.0/README.md](2.0/README.md) for the current 2.0 track.
 
 ### Research Problems
 
@@ -165,6 +201,10 @@ print(f"Score: {result.score}")
 
 # Evaluate an algorithmic problem
 result = evaluator.evaluate("algorithmic", problem_id=1, code=cpp_code)
+print(f"Score: {result.score}")
+
+# Evaluate a Frontier-CS 2.0 problem by name
+result = evaluator.evaluate("2.0", problem_id="erdos_unit_distance", code=py_code)
 print(f"Score: {result.score}")
 
 # Get unbounded score for algorithmic problems

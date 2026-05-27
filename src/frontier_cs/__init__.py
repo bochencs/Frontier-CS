@@ -31,9 +31,33 @@ Usage:
     batch.# Use batch.scan_solutions_dir() or evaluate_pairs()
 """
 
-from .single_evaluator import SingleEvaluator
-from .config import RuntimeConfig, ResourcesConfig, DockerConfig, ProblemConfig
-from .runner import EvaluationResult
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .single_evaluator import SingleEvaluator
+    from .config import RuntimeConfig, ResourcesConfig, DockerConfig, ProblemConfig
+    from .runner import EvaluationResult
+
+
+def __getattr__(name: str):
+    if name == "SingleEvaluator":
+        from .single_evaluator import SingleEvaluator
+
+        return SingleEvaluator
+    if name in {"RuntimeConfig", "ResourcesConfig", "DockerConfig", "ProblemConfig"}:
+        from .config import RuntimeConfig, ResourcesConfig, DockerConfig, ProblemConfig
+
+        return {
+            "RuntimeConfig": RuntimeConfig,
+            "ResourcesConfig": ResourcesConfig,
+            "DockerConfig": DockerConfig,
+            "ProblemConfig": ProblemConfig,
+        }[name]
+    if name == "EvaluationResult":
+        from .runner import EvaluationResult
+
+        return EvaluationResult
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 __all__ = [
     "SingleEvaluator",

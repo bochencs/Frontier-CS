@@ -6,6 +6,7 @@ on:
     paths:
       - 'research/**'
       - 'algorithmic/problems/**'
+      - '2.0/problems/**'
   workflow_dispatch:
 
 jobs:
