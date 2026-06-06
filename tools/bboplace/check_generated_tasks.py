@@ -22,11 +22,21 @@ EXPECTED_TASKS = {
         "candidate_limit": 1,
         "submission_path": "/app/solution.json",
         "required_text": "Submit exactly one placement for `adaptec1`",
+        "visible_input_copy": (
+            "COPY --from=visible_input_0 "
+            "/opt/bboplace-bench/benchmarks/ispd2005/adaptec1 "
+            "/app/input/benchmarks/ispd2005/adaptec1"
+        ),
     },
     "frontier-cs-2-0-bboplace-direct-iccad2015": {
         "candidate_limit": 1,
         "submission_path": "/app/solution.json",
         "required_text": "Submit exactly one placement for `superblue1`",
+        "visible_input_copy": (
+            "COPY --from=visible_input_0 "
+            "/opt/bboplace-bench/benchmarks/iccad2015/superblue1 "
+            "/app/input/benchmarks/iccad2015/superblue1"
+        ),
     },
 }
 EXPECTED_JUDGE_IMAGE = "ghcr.io/frontiercs/frontiercs-bboplace-data:2026-06-ispd-iccad"
@@ -69,6 +79,7 @@ def check_task(task_dir: Path, expected: dict[str, object]) -> None:
     require("no GPU" in instruction, f"{task_dir.name}: missing no-GPU statement")
     require(
         f"`max_candidates_per_submission`: {expected['candidate_limit']}" in instruction
+        or f"max_candidates_per_submission: {expected['candidate_limit']}" in instruction
         or f"Only one placement is accepted" in instruction,
         f"{task_dir.name}: candidate limit should be {expected['candidate_limit']}",
     )
@@ -80,6 +91,21 @@ def check_task(task_dir: Path, expected: dict[str, object]) -> None:
         str(expected["submission_path"]) in submission_config,
         f"{task_dir.name}: generated submission path mismatch",
     )
+    visible_input_copy = expected.get("visible_input_copy")
+    if visible_input_copy:
+        require(
+            "FROM ghcr.io/frontiercs/frontiercs-bboplace-data:2026-06-ispd-iccad AS visible_input_0"
+            in dockerfile,
+            f"{task_dir.name}: missing visible input image stage",
+        )
+        require(
+            str(visible_input_copy) in dockerfile,
+            f"{task_dir.name}: missing visible input copy",
+        )
+        require(
+            not (env_dir / "harbor_app" / "input").exists(),
+            f"{task_dir.name}: generated context should not include raw visible input",
+        )
 
 
 def main(argv: list[str]) -> int:
