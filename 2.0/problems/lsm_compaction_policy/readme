@@ -1,0 +1,138 @@
+# LSM Compaction Policy
+
+## Problem
+
+Write an online compaction policy for a deterministic log-structured merge-tree
+simulator. The policy sees aggregate LSM state after each epoch and decides
+whether to compact one level.
+
+The objective is to reduce total storage-system cost across hidden workloads.
+The simulator charges foreground writes, point reads, range reads, background
+compaction bytes, space amplification, and write-stall pressure.
+
+Hidden workloads include write bursts, hot-key point reads, range scans,
+tombstone churn, skew shifts, and mixed phases.
+Final workloads may change memtable size, keyspace size, target scale, phase
+lengths, and range widths relative to feedback workloads.
+
+## Submission
+
+Create `/app/solution.py` with:
+
+```python
+def init(config):
+    ...
+
+def choose(state, observation):
+    ...
+```
+
+Use `bash /app/submit.sh` to send the current solution to the black-box judge
+and receive feedback during a Harbor trial.
+
+## Policy Interface
+
+`init(config)` is called once per hidden workload and may return any internal
+state object. `config` contains:
+
+```text
+levels, memtable_bytes, level_targets, keyspace, valid_picks
+```
+
+`choose(state, observation)` is called repeatedly while the simulator runs. It
+may mutate `state`. It sees only the current observation and past state, never
+future events.
+
+Return either:
+
+```python
+{"type": "none"}
+# or
+{"type": "compact", "level": 0, "pick": "oldest", "max_runs": 4}
+```
+
+Valid `pick` values are `oldest`, `largest`, `overlap`, `tombstone`, and `hot`.
+Use a positive integer `max_runs`. The simulator never compacts more runs than
+are currently available.
+
+Valid compaction levels satisfy `0 <= level < levels - 1`. `pick` selects runs
+from the requested level. `oldest`, `largest`, `overlap`, `tombstone`, and
+`hot` order runs by age, size, key span, tombstone fraction, and hotness.
+Tombstone compaction rewrites selected runs in the same level; other compactions
+also merge overlapping runs from the next level.
+
+## Observation
+
+Each observation has this shape:
+
+```python
+{
+    "step": 123,
+    "levels": [
+        {
+            "level": 0,
+            "runs": 5,
+            "bytes": 16420.0,
+            "target_bytes": 18000,
+            "tombstone_frac": 0.0833,
+            "hotness": 0.41,
+            "span_frac": 0.18,
+        },
+        ...
+    ],
+    "memtable_bytes": 731.0,
+    "stall_pressure": 1.25,
+    "recent": {
+        "events": 45,
+        "write_frac": 0.5333,
+        "read_frac": 0.2889,
+        "range_frac": 0.1778,
+        "delete_frac": 0.1250,
+        "avg_write_bytes": 116.5,
+    },
+}
+```
+
+The observation does not include future events, per-run hidden workload labels,
+reference actions, or final scoring targets.
+
+`delete_frac` is the fraction of recent writes that are deletes. `span_frac`
+summarizes the average key-span width of runs in a level. `stall_pressure`
+increases when level 0 has too many runs or when upper levels exceed their
+target bytes.
+
+## Validity
+
+Invalid actions are treated as no-ops with a small penalty. Examples include
+unknown action types, out-of-range levels, non-positive `max_runs`, and unknown
+`pick` values.
+
+Individual policy calls have a default 2.5 second timeout, and the full policy
+evaluation has a default 55 second total time budget. Keep `choose()`
+lightweight.
+
+## Scoring
+
+The bounded score compares the policy's total cost against a simple internal
+baseline and a hidden online reference policy. Scores are balanced across
+hidden workload families, so a policy that fails one family can receive a low
+score even if it performs well elsewhere. Bounded and unbounded scores report
+the same clipped aggregate evaluator score; higher is better.
+
+Feedback reports aggregate validity, workload count, total cost,
+invalid-action count, candidate wall time, and score. It does not report
+per-workload costs, family labels, future traces, or reference actions.
+
+Feedback and final verification use different hidden seeds and mixtures. In
+Harbor runs, the judge prepares trial-local hidden workloads before accepting
+submissions.
+
+## Restrictions
+
+Submitted policies may not use external packages. Only these standard-library
+modules may be imported: `collections`, `functools`, `heapq`, `itertools`,
+`math`, and `random`. File access, subprocesses, sockets, dynamic imports,
+private attributes, and introspection are rejected.
+
+The submitted source must be at most 250 KB. Dunder names and private attribute
+access are rejected.

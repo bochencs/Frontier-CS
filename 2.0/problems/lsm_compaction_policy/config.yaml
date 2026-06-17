@@ -1,0 +1,15 @@
+tag: systems
+runtime:
+  language: python
+  timeout_seconds: 900
+  environment: "Python 3.11+; submitted policy imports are restricted"
+  docker:
+    image: python:3.12-slim
+environment:
+  cpus: 2
+  memory_mb: 4096
+  storage_mb: 4096
+  build_timeout_seconds: 1200
+submission:
+  kind: file
+  path: /app/solution.py
